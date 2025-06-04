@@ -22,7 +22,7 @@ install.packages(c("shiny", "DT", "jsonlite", "dplyr", "tidyr", "plotly", "shiny
 ```
 ### Running the Dashboard
 1. Clone this repository
-2. Open the launcher in R/RStudio and click 'Run' (top right of the text editor window). Or, open a new R/Rstudio script and run the launcher with:
+2. Open the launcher in R/RStudio and click 'Run' (top right of the text editor window). Or, open a new R/Rstudio script and run the launcher with (you might need to set your working directory to the project folder for this second method to work):
 ```r
 source("Launch_dash.R")
 ```
