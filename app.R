@@ -54,6 +54,7 @@ search_bge_plates <- function(bge_data, plate_search = "", sample_search = "", p
   
   return(filtered_data)
 }
+
 get_available_datasets <- function() {
   if (!dir.exists(BASE_DATA_DIR)) {
     return(character(0))
@@ -75,7 +76,7 @@ get_dataset_paths <- function(dataset_name) {
 }
 
 # Function to parse JSON files
-parse_json_file <- function(json_path, sample_id) {
+parse_json_file <- function(json_path, process_id) {
   tryCatch({
     data <- fromJSON(json_path)
     
@@ -83,7 +84,7 @@ parse_json_file <- function(json_path, sample_id) {
     `%||%` <- function(x, y) if (is.null(x)) y else x
     
     result <- data.frame(
-      sample_id = sample_id,
+      process_id = process_id,
       # Before filtering
       before_total_reads = data$summary$before_filtering$total_reads %||% NA,
       before_total_bases = data$summary$before_filtering$total_bases %||% NA,
@@ -116,7 +117,7 @@ parse_json_file <- function(json_path, sample_id) {
     )
     return(result)
   }, error = function(e) {
-    message(paste("Error parsing JSON for", sample_id, ":", e$message))
+    message(paste("Error parsing JSON for", process_id, ":", e$message))
     return(NULL)
   })
 }
@@ -150,6 +151,10 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
   if (file.exists(paths$sum_stats)) {
     tryCatch({
       result$summary_stats <- read.csv(paths$sum_stats, stringsAsFactors = FALSE)
+      # Rename ID column to process_id if it exists
+      if ("ID" %in% names(result$summary_stats)) {
+        names(result$summary_stats)[names(result$summary_stats) == "ID"] <- "process_id"
+      }
       message(paste("Loaded", nrow(result$summary_stats), "rows from summary stats"))
     }, error = function(e) {
       result$status <- paste(result$status, "Error loading summary stats:", e$message, "\n")
@@ -191,10 +196,10 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
           progress_callback(json_progress, paste("Processing JSON file", i, "of", total_json_files))
         }
         
-        # Extract sample ID from filename
-        sample_id <- gsub("_fastp_report\\.json$", "", basename(json_file))
+        # Extract process ID from filename (changed from sample_id)
+        process_id <- gsub("_fastp_report\\.json$", "", basename(json_file))
         
-        parsed_data <- parse_json_file(json_file, sample_id)
+        parsed_data <- parse_json_file(json_file, process_id)
         if (!is.null(parsed_data)) {
           json_data_list[[length(json_data_list) + 1]] <- parsed_data
         }
@@ -339,7 +344,7 @@ ui <- fluidPage(
   
   # Tabs for each section
   tabsetPanel(
-    # New Sample Finder Tab
+    # Sample Finder Tab (1st)
     tabPanel("Sample Finder",
              br(),
              div(class = "sample-finder-section",
@@ -389,7 +394,7 @@ ui <- fluidPage(
              )
     ),
     
-    # Dataset Selection Tab (now second)
+    # Dataset Selection Tab (2nd)
     tabPanel("Dataset Selection",
              br(),
              div(class = "dataset-selection",
@@ -427,13 +432,14 @@ ui <- fluidPage(
              h4("Dataset Information"),
              p("Once you select and load a dataset, you can navigate to the other tabs to view:"),
              tags$ul(
-               tags$li(strong("Summary Statistics:"), " Combined stats from MGE processing"),
-               tags$li(strong("FASTA Compare Results:"), " Sequence comparison and quality metrics"),
-               tags$li(strong("JSON Quality Metrics:"), " Fastp quality control metrics")
+               tags$li(strong("BGEE Summary Statistics:"), " Combined statistics from the Barcode Gene Extractor & Evaluator (BGEE) pipeline. "),
+               tags$li(strong("Fastp Metrics:"), " Before and after read trimming statistics from Fastp (parsed from json files). "),
+               tags$li(strong("FASTA Compare Results:"), " Barcode consensus sequence comparison and quality metrics. ")
              )
     ),
     
-    tabPanel("Summary Statistics",
+    # Fastp Metrics Tab (3rd - moved up)
+    tabPanel("Fastp Metrics",
              br(),
              conditionalPanel(
                condition = "output.dataset_loaded == false",
@@ -442,15 +448,81 @@ ui <- fluidPage(
              ),
              conditionalPanel(
                condition = "output.dataset_loaded == true",
-               downloadButton("downloadSummaryStats", "Download Filtered Summary Stats", class = "download-btn btn-primary"),
-               DTOutput("summaryStatsTable"),
-               br(),
+               
+               # Static description text area
+               div(
+                 h4("About Fastp Metrics"),
+                 HTML("Fastp metrics are generated from JSON output files of the <a href='https://github.com/OpenGene/fastp' target='_blank'>fastp preprocessing tool</a>. These files contain detailed statistics about read quality before and after filtering (from the 'concat' mode of the BGEE pipeline)."),
+                 style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
+               ),
+               
+               # Field descriptions moved above download button
+               div(
+                 class = "mb-3",
+                 h4("Fastp JSON Field Descriptions"),
+                 tags$ul(
+                   tags$li(strong("Process ID:"), " Unique sample identifier."),
+                   tags$li(strong("before_total_reads / after_total_reads:"), " Total reads before and after filtering."),
+                   tags$li(strong("before_total_bases / after_total_bases:"), " Total bases before and after filtering."),
+                   tags$li(strong("before_q20/q30_bases, after_q20/q30_bases:"), " Bases with quality ≥ Q20/Q30 before and after filtering."),
+                   tags$li(strong("q20_rate / q30_rate:"), " Quality scores as percentages."),
+                   tags$li(strong("read1_mean_length / read2_mean_length:"), " Mean PE read lengths before/after filtering."),
+                   tags$li(strong("gc_content:"), " GC% content of reads before/after filtering."),
+                   tags$li(strong("passed_filter_reads:"), " Reads that passed the quality filter."),
+                   tags$li(strong("low_quality_reads / too_many_N_reads / too_short_reads / too_long_reads:"), " Now of reads failing filtering reasons."),
+                   tags$li(strong("duplication_rate:"), " Estimated duplication rate in the reads.")
+                 ),
+                 style = "background-color: #fff; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-bottom: 20px;"
+               ),
+               
+               downloadButton("downloadJsonData", "Download Filtered JSON Data", class = "download-btn btn-primary"),
+               DTOutput("jsonDataTable"),
+               
+               # Bar chart with selectable y-axis
+               hr(),
+               h4("Process ID Overview"),
+               fluidRow(
+                 column(6, selectInput("json_bar_ycol", "Y Axis:", choices = NULL)),
+                 column(6, div(style = "height: 34px;")) # Spacer for alignment
+               ),
+               plotlyOutput("jsonBarPlot", height = "400px"),
+               
+               # Interactive scatter plot
+               hr(),
+               h4("Interactive Scatter Plot"),
+               fluidRow(
+                 column(6, selectInput("json_xcol", "X Axis:", choices = NULL)),
+                 column(6, selectInput("json_ycol", "Y Axis:", choices = NULL))
+               ),
+               plotlyOutput("jsonDataPlot", height = "500px")
+             )
+    ),
+    
+    # BGEE Summary Statistics Tab (4th)
+    tabPanel("BGEE Summary Statistics",
+             br(),
+             conditionalPanel(
+               condition = "output.dataset_loaded == false",
+               div(p("Please select and load a dataset from the 'Dataset Selection' tab first."),
+                   style = "color: #6c757d; font-style: italic;")
+             ),
+             conditionalPanel(
+               condition = "output.dataset_loaded == true",
+               
+               # Static description text area
+               div(
+                 h4("About BGEE Summary Statistics"),
+                 HTML("<a href='https://github.com/bge-barcoding/BGEE' target='_blank'>BGEE (Barcode Gene Extractor & Evaluator)</a> summary statistics are generated from the combined output of the MGE (MitoGeneExtractor) and fasta_cleaner steps of both 'concat' and 'merge' pre-processing modes of the workflow. The BGEE summary statistics include read processing metrics, barcode consensus sequence coverage information, and quality assessments. The BGEE workflow coordinates all elements of data pre-processing, barcode sequence recovery, and post-processing. Six MGE parameter combinations ('r' and 's' values) are utilised for each sample"),
+                 style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
+               ),
+               
+               # Field descriptions moved above download button
                div(
                  class = "mb-3",
                  h4("Summary Statistics Field Descriptions"),
                  tags$ul(
                    tags$li(strong("Filename:"), " Name of file/sequence header, including the Process (ID) and MGE parameters (mge_params)."),
-                   tags$li(strong("ID:"), " Unique Process identifier (ID) for the sample."),
+                   tags$li(strong("process_id:"), " Unique Process identifier (ID) for the sample."),
                    tags$li(strong("mge_params:"), " Parameter string parsed from Filename. See MitoGeneExtractor GitHub repo for explanation or 'r' and 's'"),
                    tags$li(strong("n_reads_in:"), " Total number of reads input to, and processed by, MGE."),
                    tags$li(strong("n_reads_aligned:"), " Total number of reads aligned to the reference sequence by MGE."),
@@ -469,18 +541,28 @@ ui <- fluidPage(
                    tags$li(strong("cleaning_cov_avg:"), " Mean coverage (depth) observed in the alignment after cleaning. "),
                    tags$li(strong("cleaning_cov_max:"), " Maximum coverage (depth) observed in the alignment after cleaning. "),
                    tags$li(strong("cleaning_cov_min:"), " Minimum coverage (depth) observed in the alignment after cleaning. ")
-                 )
+                 ),
+                 style = "background-color: #fff; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-bottom: 20px;"
                ),
+               
+               downloadButton("downloadSummaryStats", "Download Filtered Summary Stats", class = "download-btn btn-primary"),
+               DTOutput("summaryStatsTable"),
                hr(),
-               h4("Interactive Plot"),
+               h4("Interactive Scatter Plot"),
                fluidRow(
                  column(6, selectInput("ycol", "Y Axis:", choices = NULL)),
                  column(6, selectInput("xcol", "X Axis:", choices = NULL))
                ),
-               plotlyOutput("summaryStatsPlot", height = "500px")
+               plotlyOutput("summaryStatsPlot", height = "500px"),
+               
+               # New bar chart for n_reads_in by Process ID
+               hr(),
+               h4("Reads Processed by BGEE for 'concat' and 'merge' mode, for each Process ID"),
+               plotlyOutput("summaryBarPlot", height = "400px")
              )
     ),
     
+    # FASTA Compare Results Tab (5th)
     tabPanel("FASTA Compare Results",
              br(),
              conditionalPanel(
@@ -490,9 +572,15 @@ ui <- fluidPage(
              ),
              conditionalPanel(
                condition = "output.dataset_loaded == true",
-               downloadButton("downloadFastaCompare", "Download Filtered FASTA Compare", class = "download-btn btn-primary"),
-               DTOutput("fastaCompareTable"),
-               br(),
+               
+               # Static description text area
+               div(
+                 h4("About FASTA Compare Results"),
+                 HTML("<a href='https://github.com/bge-barcoding/fasta_compare' target='_blank'>FASTA Compare</a> is the final post-processing step of the BGEE workflow. Results are generated by analysing and ranking consensus sequences from the 'concat' and 'merge' modes, as well as fasta_cleaner-generated barcode consensus sequences. The tool evaluates sequence quality based on factors like gaps, ambiguous bases, and barcode region contiguity to select the best barcode sequence for each process ID."),
+                 style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
+               ),
+               
+               # Field descriptions moved above download button
                div(
                  class = "mb-3",
                  h4("FASTA Compare Field Descriptions"),
@@ -515,8 +603,12 @@ ui <- fluidPage(
                    tags$li(strong("best_sequence:"), " TRUE if this is the best sequence for the process_id"),
                    tags$li(strong("selected_full_fasta:"), " TRUE if this was selected for output to full FASTA"),
                    tags$li(strong("selected_barcode_fasta:"), " TRUE if this was selected for output to barcode FASTA")
-                 )
+                 ),
+                 style = "background-color: #fff; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-bottom: 20px;"
                ),
+               
+               downloadButton("downloadFastaCompare", "Download Filtered FASTA Compare", class = "download-btn btn-primary"),
+               DTOutput("fastaCompareTable"),
                hr(),
                h4("Interactive Plot"),
                fluidRow(
@@ -524,45 +616,6 @@ ui <- fluidPage(
                  column(6, selectInput("fasta_ycol", "Y Axis:", choices = NULL))
                ),
                plotlyOutput("fastaComparePlot", height = "500px")
-             )
-    ),
-    
-    tabPanel("JSON Quality Metrics",
-             br(),
-             conditionalPanel(
-               condition = "output.dataset_loaded == false",
-               div(p("Please select and load a dataset from the 'Dataset Selection' tab first."),
-                   style = "color: #6c757d; font-style: italic;")
-             ),
-             conditionalPanel(
-               condition = "output.dataset_loaded == true",
-               downloadButton("downloadJsonData", "Download Filtered JSON Data", class = "download-btn btn-primary"),
-               DTOutput("jsonDataTable"),
-               br(),
-               div(
-                 class = "mb-3",
-                 h4("Fastp JSON Field Descriptions"),
-                 tags$ul(
-                   tags$li(strong("Process ID:"), " Unique sample identifier."),
-                   tags$li(strong("before_total_reads / after_total_reads:"), " Total reads before and after filtering."),
-                   tags$li(strong("before_total_bases / after_total_bases:"), " Total bases before and after filtering."),
-                   tags$li(strong("before_q20/q30_bases, after_q20/q30_bases:"), " Bases with quality ≥ Q20/Q30 before and after filtering."),
-                   tags$li(strong("q20_rate / q30_rate:"), " Quality scores as percentages."),
-                   tags$li(strong("read1_mean_length / read2_mean_length:"), " Mean PE read lengths before/after filtering."),
-                   tags$li(strong("gc_content:"), " GC% content of reads before/after filtering."),
-                   tags$li(strong("passed_filter_reads:"), " Reads that passed the quality filter."),
-                   tags$li(strong("low_quality_reads / too_many_N_reads / too_short_reads / too_long_reads:"), " Now of reads failing filtering reasons."),
-                   tags$li(strong("duplication_rate:"), " Estimated duplication rate in the reads.")
-                 )
-               ),
-               br(),
-               hr(),
-               h4("Interactive Plot"),
-               fluidRow(
-                 column(6, selectInput("json_xcol", "X Axis:", choices = NULL)),
-                 column(6, selectInput("json_ycol", "Y Axis:", choices = NULL))
-               ),
-               plotlyOutput("jsonDataPlot", height = "500px")
              )
     )
   )
@@ -805,23 +858,112 @@ server <- function(input, output, session) {
     }
   })
   
-  # Render summary stats plot
+  # Render summary stats scatter plot with Filename hover
   output$summaryStatsPlot <- renderPlotly({
     req(input$xcol, input$ycol, values$dataset_loaded, nrow(values$summary_stats) > 0)
     
-    plot_ly(
-      data = values$summary_stats,
-      x = ~.data[[input$xcol]],
-      y = ~.data[[input$ycol]],
-      type = 'scatter',
-      mode = 'markers',
-      marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
-    ) %>%
-      layout(
-        xaxis = list(title = input$xcol),
-        yaxis = list(title = input$ycol),
-        margin = list(t = 30)
+    # Check if Filename column exists
+    if ("Filename" %in% names(values$summary_stats)) {
+      # Create custom hover template with Filename
+      hover_template <- paste(
+        "Filename: %{text}<br>",
+        input$xcol, ": %{x}<br>",
+        input$ycol, ": %{y}",
+        "<extra></extra>"
       )
+      
+      plot_ly(
+        data = values$summary_stats,
+        x = ~.data[[input$xcol]],
+        y = ~.data[[input$ycol]],
+        text = ~Filename,  # This provides the Filename for the hover
+        type = 'scatter',
+        mode = 'markers',
+        marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+        hovertemplate = hover_template
+      ) %>%
+        layout(
+          xaxis = list(title = input$xcol),
+          yaxis = list(title = input$ycol),
+          margin = list(t = 30)
+        )
+    } else {
+      # Fallback to original plot if Filename doesn't exist
+      plot_ly(
+        data = values$summary_stats,
+        x = ~.data[[input$xcol]],
+        y = ~.data[[input$ycol]],
+        type = 'scatter',
+        mode = 'markers',
+        marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
+      ) %>%
+        layout(
+          xaxis = list(title = input$xcol),
+          yaxis = list(title = input$ycol),
+          margin = list(t = 30)
+        )
+    }
+  })
+  
+  # Render summary stats bar plot (n_reads_in by Process ID, grouped by mode)
+  output$summaryBarPlot <- renderPlotly({
+    req(values$dataset_loaded, nrow(values$summary_stats) > 0)
+    
+    # Check if required columns exist
+    if (!"process_id" %in% names(values$summary_stats) || !"n_reads_in" %in% names(values$summary_stats) || !"mge_params" %in% names(values$summary_stats)) {
+      return(NULL)
+    }
+    
+    # Prepare data with mode classification and get unique combinations
+    plot_data <- values$summary_stats %>%
+      mutate(mode = ifelse(grepl("_merge$", mge_params), "Merge", "Concat")) %>%
+      select(process_id, n_reads_in, mode) %>%
+      distinct() %>%
+      arrange(process_id, mode) %>%
+      filter(!is.na(n_reads_in))
+    
+    # Get unique process_ids for ordering
+    unique_process_ids <- unique(plot_data$process_id)
+    
+    # Create separate data for each mode
+    merge_data <- plot_data %>% filter(mode == "Merge")
+    concat_data <- plot_data %>% filter(mode == "Concat")
+    
+    # Create the plot
+    p <- plot_ly()
+    
+    # Add merge mode bars
+    if (nrow(merge_data) > 0) {
+      p <- p %>% add_bars(
+        data = merge_data,
+        x = ~factor(process_id, levels = unique_process_ids),
+        y = ~n_reads_in,
+        name = "Merge Mode",
+        marker = list(color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+        hovertemplate = ~paste("Process ID:", process_id, "<br>Mode: Merge<br>Reads In:", n_reads_in, "<extra></extra>")
+      )
+    }
+    
+    # Add concat mode bars
+    if (nrow(concat_data) > 0) {
+      p <- p %>% add_bars(
+        data = concat_data,
+        x = ~factor(process_id, levels = unique_process_ids),
+        y = ~n_reads_in,
+        name = "Concat Mode",
+        marker = list(color = 'rgba(255, 99, 71, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+        hovertemplate = ~paste("Process ID:", process_id, "<br>Mode: Concat<br>Reads In:", n_reads_in, "<extra></extra>")
+      )
+    }
+    
+    # Layout
+    p %>% layout(
+      xaxis = list(title = "Process ID", showticklabels = FALSE),
+      yaxis = list(title = "Number of Reads In"),
+      barmode = 'group',
+      margin = list(t = 30, b = 50),
+      legend = list(x = 0.02, y = 0.98)
+    )
   })
   
   # Render FASTA Compare table
@@ -858,23 +1000,51 @@ server <- function(input, output, session) {
     }
   })
   
-  # Render FASTA compare plot
+  # Render FASTA compare plot with seq_id hover
   output$fastaComparePlot <- renderPlotly({
     req(input$fasta_xcol, input$fasta_ycol, values$dataset_loaded, nrow(values$fasta_compare) > 0)
     
-    plot_ly(
-      data = values$fasta_compare,
-      x = ~.data[[input$fasta_xcol]],
-      y = ~.data[[input$fasta_ycol]],
-      type = 'scatter',
-      mode = 'markers',
-      marker = list(size = 10, color = 'rgba(0, 180, 135, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
-    ) %>%
-      layout(
-        xaxis = list(title = input$fasta_xcol),
-        yaxis = list(title = input$fasta_ycol),
-        margin = list(t = 30)
+    # Check if seq_id column exists
+    if ("seq_id" %in% names(values$fasta_compare)) {
+      # Create custom hover template with seq_id
+      hover_template <- paste(
+        "Seq ID: %{text}<br>",
+        input$fasta_xcol, ": %{x}<br>",
+        input$fasta_ycol, ": %{y}",
+        "<extra></extra>"
       )
+      
+      plot_ly(
+        data = values$fasta_compare,
+        x = ~.data[[input$fasta_xcol]],
+        y = ~.data[[input$fasta_ycol]],
+        text = ~seq_id,  # This provides the seq_id for the hover
+        type = 'scatter',
+        mode = 'markers',
+        marker = list(size = 10, color = 'rgba(0, 180, 135, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+        hovertemplate = hover_template
+      ) %>%
+        layout(
+          xaxis = list(title = input$fasta_xcol),
+          yaxis = list(title = input$fasta_ycol),
+          margin = list(t = 30)
+        )
+    } else {
+      # Fallback to original plot if seq_id doesn't exist
+      plot_ly(
+        data = values$fasta_compare,
+        x = ~.data[[input$fasta_xcol]],
+        y = ~.data[[input$fasta_ycol]],
+        type = 'scatter',
+        mode = 'markers',
+        marker = list(size = 10, color = 'rgba(0, 180, 135, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
+      ) %>%
+        layout(
+          xaxis = list(title = input$fasta_xcol),
+          yaxis = list(title = input$fasta_ycol),
+          margin = list(t = 30)
+        )
+    }
   })
   
   # Render JSON Data table
@@ -901,18 +1071,59 @@ server <- function(input, output, session) {
       formatRound(columns = which(sapply(values$json_data, is.numeric)), digits = 4)
   })
   
-  # Update choices for JSON column selectors
+  # Update choices for JSON column selectors (including bar chart)
   observe({
     if (values$dataset_loaded && nrow(values$json_data) > 0) {
+      all_cols <- names(values$json_data)
       numeric_cols <- names(values$json_data)[sapply(values$json_data, is.numeric)]
+      
       if (length(numeric_cols) > 0) {
+        # For scatter plot
         updateSelectInput(session, "json_xcol", choices = numeric_cols, selected = numeric_cols[1])
         updateSelectInput(session, "json_ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
+        
+        # For bar chart - all columns except process_id
+        bar_choices <- all_cols[all_cols != "process_id"]
+        updateSelectInput(session, "json_bar_ycol", choices = bar_choices, selected = bar_choices[1])
       }
     }
   })
   
-  # Render JSON plot
+  # Render JSON bar plot (process_id on x-axis, selectable y-axis)
+  output$jsonBarPlot <- renderPlotly({
+    req(input$json_bar_ycol, values$dataset_loaded, nrow(values$json_data) > 0)
+    
+    # Check if required columns exist
+    if (!"process_id" %in% names(values$json_data) || !input$json_bar_ycol %in% names(values$json_data)) {
+      return(NULL)
+    }
+    
+    # Get unique process_ids and their values, sort by process_id A-Z
+    plot_data <- values$json_data %>%
+      select(process_id, !!sym(input$json_bar_ycol)) %>%
+      distinct() %>%
+      arrange(process_id) %>%
+      filter(!is.na(!!sym(input$json_bar_ycol)))
+    
+    # Get unique process_ids for proper factor levels
+    unique_process_ids <- unique(plot_data$process_id)
+    
+    plot_ly(
+      data = plot_data,
+      x = ~factor(process_id, levels = unique_process_ids),
+      y = ~.data[[input$json_bar_ycol]],
+      type = 'bar',
+      marker = list(color = 'rgba(255, 99, 71, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+      hovertemplate = ~paste("Process ID:", process_id, "<br>", input$json_bar_ycol, ":", .data[[input$json_bar_ycol]], "<extra></extra>")
+    ) %>%
+      layout(
+        xaxis = list(title = "Process ID", showticklabels = FALSE),
+        yaxis = list(title = input$json_bar_ycol),
+        margin = list(t = 30, b = 50)
+      )
+  })
+  
+  # Render JSON scatter plot
   output$jsonDataPlot <- renderPlotly({
     req(input$json_xcol, input$json_ycol, values$dataset_loaded, nrow(values$json_data) > 0)
     
