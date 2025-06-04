@@ -8,9 +8,9 @@ A Shiny-based interactive dashboard for visualisation, filtering, and downloadin
 - **Interactive Visualisations**: Interactive scatter plots and bar charts.
 - **Data Export**: Subset, filter, copy and download filtered results as CSV or Excel files.
 - **Multi-source Analysis**: 
-  - BGEE Summary Statistics (MGE + fasta_cleaner results for both pre-processing modes)
-  - Fastp Quality Metrics (JSON parsing)
-  - FASTA Compare Results (Post-processing sequence ranking (based on BOLD BIN criteria) and selection)
+  - Fastp pre-processing quality metrics (JSON parsing)
+  - BGEE summary statistics (MGE + fasta_cleaner results for both pre-processing modes)
+  - Fasta Compare results (Post-processing sequence ranking (based on BOLD BIN criteria) and selection)
 
 
 ## Quick Start
