@@ -10,11 +10,14 @@ library(tidyr)
 library(plotly)
 library(shinyjs)
 
+
 # Base data directory
 BASE_DATA_DIR <- "./data"
 BGE_PLATES_PATH <- file.path(BASE_DATA_DIR, "bge_plates_ids.csv")
 
-# Function to load BGE plates data
+
+
+# Load BGE plates data
 load_bge_plates <- function() {
   if (file.exists(BGE_PLATES_PATH)) {
     tryCatch({
@@ -32,7 +35,7 @@ load_bge_plates <- function() {
   }
 }
 
-# Function to search BGE plates data
+# Search BGE plates data
 search_bge_plates <- function(bge_data, plate_search = "", sample_search = "", process_search = "") {
   if (nrow(bge_data) == 0) return(data.frame())
   
@@ -64,7 +67,7 @@ get_available_datasets <- function() {
   return(dirs[dirs != ""])
 }
 
-# Function to construct file paths for a given dataset
+# Construct file paths for a given dataset
 get_dataset_paths <- function(dataset_name) {
   base_path <- file.path(BASE_DATA_DIR, dataset_name)
   
@@ -75,7 +78,7 @@ get_dataset_paths <- function(dataset_name) {
   )
 }
 
-# Function to parse JSON files
+# Parse fastp JSON files
 parse_json_file <- function(json_path, process_id) {
   tryCatch({
     data <- fromJSON(json_path)
@@ -122,7 +125,10 @@ parse_json_file <- function(json_path, process_id) {
   })
 }
 
-# Function to load dataset with progress updates
+
+
+
+# Load dataset with progress updates
 load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
   if (is.null(dataset_name) || dataset_name == "") {
     return(list(
@@ -133,7 +139,7 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
     ))
   }
   
-  # Initialize progress
+  # Initialise progress
   if (!is.null(progress_callback)) progress_callback(0, "Initializing...")
   
   paths <- get_dataset_paths(dataset_name)
@@ -144,7 +150,7 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
     status = ""
   )
   
-  # Step 1: Load summary stats (33% progress)
+  # Load summary stats (33% progress)
   if (!is.null(progress_callback)) progress_callback(33, "Loading summary statistics...")
   Sys.sleep(0.5) # Brief pause to show progress
   
@@ -163,7 +169,7 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
     result$status <- paste(result$status, "Summary stats file not found:", paths$sum_stats, "\n")
   }
   
-  # Step 2: Load FASTA compare (66% progress)
+  # Load FASTA compare (66% progress)
   if (!is.null(progress_callback)) progress_callback(66, "Loading FASTA compare data...")
   Sys.sleep(0.5) # Brief pause to show progress
   
@@ -178,7 +184,7 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
     result$status <- paste(result$status, "FASTA compare file not found:", paths$fcomp, "\n")
   }
   
-  # Step 3: Load JSON files (100% progress)
+  # Load JSON files (100% progress)
   if (!is.null(progress_callback)) progress_callback(90, "Loading JSON quality metrics...")
   Sys.sleep(0.5) # Brief pause to show progress
   
@@ -196,7 +202,7 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
           progress_callback(json_progress, paste("Processing JSON file", i, "of", total_json_files))
         }
         
-        # Extract process ID from filename (changed from sample_id)
+        # Extract process ID from filename
         process_id <- gsub("_fastp_report\\.json$", "", basename(json_file))
         
         parsed_data <- parse_json_file(json_file, process_id)
@@ -226,6 +232,10 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
   
   return(result)
 }
+
+
+
+
 
 # Define UI
 ui <- fluidPage(
@@ -342,7 +352,7 @@ ui <- fluidPage(
   
   titlePanel("Barcoding Results Dashboard"),
   
-  # Tabs for each section
+  # Set up tabs for each section
   tabsetPanel(
     # Sample Finder Tab (1st)
     tabPanel("Sample Finder",
@@ -438,7 +448,7 @@ ui <- fluidPage(
              )
     ),
     
-    # Fastp Metrics Tab (3rd - moved up)
+    # Fastp Metrics Tab (3rd)
     tabPanel("Fastp Metrics",
              br(),
              conditionalPanel(
@@ -456,7 +466,7 @@ ui <- fluidPage(
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               # Field descriptions moved above download button
+               # Field descriptions
                div(
                  class = "mb-3",
                  h4("Fastp JSON Field Descriptions"),
@@ -516,7 +526,7 @@ ui <- fluidPage(
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               # Field descriptions moved above download button
+               # Field descriptions
                div(
                  class = "mb-3",
                  h4("Summary Statistics Field Descriptions"),
@@ -555,7 +565,7 @@ ui <- fluidPage(
                ),
                plotlyOutput("summaryStatsPlot", height = "500px"),
                
-               # New bar chart for n_reads_in by Process ID
+               # Bar chart for n_reads_in by Process ID
                hr(),
                h4("Reads Processed by BGEE for 'concat' and 'merge' mode, for each Process ID"),
                plotlyOutput("summaryBarPlot", height = "400px")
@@ -580,7 +590,7 @@ ui <- fluidPage(
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               # Field descriptions moved above download button
+               # Field descriptions
                div(
                  class = "mb-3",
                  h4("FASTA Compare Field Descriptions"),
@@ -620,6 +630,11 @@ ui <- fluidPage(
     )
   )
 )
+
+
+
+
+
 
 # Define server logic
 server <- function(input, output, session) {
@@ -662,7 +677,7 @@ server <- function(input, output, session) {
     }
   })
   
-  # Function to render search results as cards
+  # Render search results as cards
   render_search_results <- function() {
     # Clear existing results
     removeUI("#search_results_container > div")
@@ -744,7 +759,7 @@ server <- function(input, output, session) {
     }
   }
   
-  # Initialize available datasets
+  # Initialise available datasets
   observe({
     datasets <- get_available_datasets()
     if (length(datasets) > 0) {
