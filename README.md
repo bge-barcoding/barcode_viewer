@@ -3,7 +3,7 @@ A Shiny-based interactive dashboard for visualisation, filtering, and downloadin
 
 
 ## Features
-- **Sample Finder**: Search across datasets by plate number, sample ID, or process ID.
+- **Sample Finder**: Search across datasets by plate number, sample ID, or process ID. **<- IN DEV**
 - **Dataset Management**: Load and explore available datasets of BGEE outputs.
 - **Interactive Visualisations**: Interactive scatter plots and bar charts.
 - **Data Export**: Subset, filter, copy and download filtered results as CSV or Excel files.
