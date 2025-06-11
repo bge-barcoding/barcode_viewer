@@ -10,12 +10,9 @@ library(tidyr)
 library(plotly)
 library(shinyjs)
 
-
 # Base data directory
 BASE_DATA_DIR <- "./data"
 BGE_PLATES_PATH <- file.path(BASE_DATA_DIR, "bge_plates_ids.csv")
-
-
 
 # Load BGE plates data
 load_bge_plates <- function() {
@@ -125,9 +122,6 @@ parse_json_file <- function(json_path, process_id) {
   })
 }
 
-
-
-
 # Load dataset with progress updates
 load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
   if (is.null(dataset_name) || dataset_name == "") {
@@ -233,10 +227,6 @@ load_dataset_with_progress <- function(dataset_name, progress_callback = NULL) {
   return(result)
 }
 
-
-
-
-
 # Define UI
 ui <- fluidPage(
   useShinyjs(), # Enable shinyjs
@@ -339,6 +329,86 @@ ui <- fluidPage(
         background-color: #f8f9fa;
         border-radius: 8px;
         border: 2px dashed #dee2e6;
+      }
+      .process-search-section {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      .outcome-result {
+        background-color: white;
+        border-radius: 12px;
+        padding: 25px;
+        margin: 20px 0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        border-left: 6px solid;
+        transition: all 0.3s ease;
+      }
+      .outcome-result:hover {
+        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        transform: translateY(-2px);
+      }
+      .outcome-success {
+        border-left-color: #28a745;
+        background: linear-gradient(135deg, #ffffff 0%, #f8fff9 100%);
+      }
+      .outcome-error {
+        border-left-color: #dc3545;
+        background: linear-gradient(135deg, #ffffff 0%, #fff8f8 100%);
+      }
+      .outcome-header {
+        font-size: 1.3em;
+        font-weight: bold;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .outcome-icon {
+        font-size: 1.8em;
+        padding: 8px;
+        border-radius: 50%;
+        min-width: 45px;
+        text-align: center;
+        color: white;
+        font-weight: bold;
+      }
+      .outcome-icon.success {
+        background-color: #28a745;
+      }
+      .outcome-icon.error {
+        background-color: #dc3545;
+      }
+      .outcome-details {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 15px;
+        border: 1px solid #e9ecef;
+      }
+      .outcome-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+      }
+      .outcome-stat {
+        background-color: white;
+        padding: 12px;
+        border-radius: 6px;
+        border: 1px solid #dee2e6;
+        text-align: center;
+      }
+      .outcome-stat-value {
+        font-size: 1.4em;
+        font-weight: bold;
+        color: #495057;
+      }
+      .outcome-stat-label {
+        font-size: 0.9em;
+        color: #6c757d;
+        margin-top: 5px;
       }
     ")),
     # JavaScript for progress updates
@@ -448,7 +518,76 @@ ui <- fluidPage(
              )
     ),
     
-    # Fastp Metrics Tab (3rd)
+    # Barcoding Outcome Tab (3rd)
+    tabPanel("Barcoding Outcome",
+             br(),
+             conditionalPanel(
+               condition = "output.dataset_loaded == false",
+               div(p("Please select and load a dataset from the 'Dataset Selection' tab first."),
+                   style = "color: #6c757d; font-style: italic;")
+             ),
+             conditionalPanel(
+               condition = "output.dataset_loaded == true",
+               
+               # Static description text area
+               div(
+                 h3("🚦 Barcoding Outcome Overview"),
+                 p("Overview of BIN-compliant barcode extraction results for all Process IDs in the loaded dataset."),
+                 style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;"
+               ),
+               
+               # Color coding explanation
+               div(
+                 h4("Result Categories", style = "color: #495057; margin-bottom: 15px;"),
+                 div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;",
+                     div(style = "background-color: #d4edda; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;",
+                         div(style = "font-weight: bold; color: #155724; margin-bottom: 5px;", "🟢 Green - Success"),
+                         p("BIN-compliant barcode successfully extracted (selected_barcode_fasta = TRUE)", 
+                           style = "margin: 0; color: #155724; font-size: 0.9em;")
+                     ),
+                     div(style = "background-color: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107;",
+                         div(style = "font-weight: bold; color: #856404; margin-bottom: 5px;", "🟡 Amber - Partial"),
+                         p("Barcode rank 4+", 
+                           style = "margin: 0; color: #856404; font-size: 0.9em;")
+                     ),
+                     div(style = "background-color: #f8d7da; padding: 15px; border-radius: 8px; border-left: 4px solid #dc3545;",
+                         div(style = "font-weight: bold; color: #721c24; margin-bottom: 5px;", "🔴 Red - Failed"),
+                         p("No BIN-compliant barcode extracted (no selected_barcode_fasta = TRUE)", 
+                           style = "margin: 0; color: #721c24; font-size: 0.9em;")
+                     )
+                 ),
+                 style = "background-color: white; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; margin-bottom: 20px;"
+               ),
+               
+               # Barcode rank explanation
+               div(
+                 h4("Barcode Rank Explanation", style = "color: #495057; margin-bottom: 15px;"),
+                 tags$ul(
+                   tags$li(strong("Rank 1:"), " No ambiguous bases, longest stretch ≥ 650"),
+                   tags$li(strong("Rank 2:"), " No ambiguous bases, longest stretch ≥ 500"),
+                   tags$li(strong("Rank 3:"), " No ambiguous bases, 300 ≤ longest stretch ≤ 499"),
+                   tags$li(strong("Rank 4:"), " No ambiguous bases, 1 ≤ longest stretch ≤ 299"),
+                   style = "margin: 0; color: #495057;"
+                 ),
+                 p("Lower ranks (1-3) indicate higher quality barcode sequences suitable for BOLD.", 
+                   style = "margin-top: 15px; margin-bottom: 0; color: #6c757d; font-style: italic;"),
+                 style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #007bff; margin-bottom: 20px;"
+               ),
+               
+               # Download button
+               downloadButton("downloadOutcomeTable", "Download Outcome Table", class = "download-btn btn-primary"),
+               
+               # Outcome table
+               DTOutput("outcomeTable"),
+               
+               # Summary statistics
+               br(),
+               div(id = "outcome_summary_container",
+                   style = "margin-top: 20px;")
+             )
+    ),
+    
+    # Fastp Metrics Tab (4th)
     tabPanel("Fastp Metrics",
              br(),
              conditionalPanel(
@@ -508,7 +647,7 @@ ui <- fluidPage(
              )
     ),
     
-    # BGEE Summary Statistics Tab (4th)
+    # BGEE Summary Statistics Tab (5th)
     tabPanel("BGEE Summary Statistics",
              br(),
              conditionalPanel(
@@ -565,14 +704,33 @@ ui <- fluidPage(
                ),
                plotlyOutput("summaryStatsPlot", height = "500px"),
                
-               # Bar chart for n_reads_in by Process ID
+               # Bar chart for n_reads_in by Process ID with search functionality
                hr(),
                h4("Reads Processed by BGEE for 'concat' and 'merge' mode, for each Process ID"),
+               
+               # Process ID search section
+               div(class = "process-search-section",
+                   fluidRow(
+                     column(6,
+                            textInput("process_id_search", 
+                                      "Search Process ID(s):",
+                                      placeholder = "e.g., BSNHM001 (partial matching supported)",
+                                      value = "")
+                     ),
+                     column(6,
+                            div(style = "margin-top: 25px;",
+                                span("💡 Tip: Leave empty to show all Process IDs, or enter partial text to filter", 
+                                     style = "color: #6c757d; font-size: 0.9em;")
+                            )
+                     )
+                   )
+               ),
+               
                plotlyOutput("summaryBarPlot", height = "400px")
              )
     ),
     
-    # FASTA Compare Results Tab (5th)
+    # FASTA Compare Results Tab (6th)
     tabPanel("FASTA Compare Results",
              br(),
              conditionalPanel(
@@ -630,11 +788,6 @@ ui <- fluidPage(
     )
   )
 )
-
-
-
-
-
 
 # Define server logic
 server <- function(input, output, session) {
@@ -838,6 +991,295 @@ server <- function(input, output, session) {
     shinyjs::enable("load_dataset")
   })
   
+  
+  
+  # ===== BARCODING OUTCOME TAB SERVER LOGIC =====
+  # Reactive function to prepare outcome data
+  # Reactive function to prepare outcome data
+  prepare_outcome_data <- reactive({
+    req(values$dataset_loaded, nrow(values$fasta_compare) > 0)
+    
+    if (!"process_id" %in% names(values$fasta_compare)) {
+      return(data.frame())
+    }
+    
+    # Group by process_id and get outcome information
+    outcome_data <- values$fasta_compare %>%
+      group_by(process_id) %>%
+      summarise(
+        # Check if any sequence was selected for barcode FASTA
+        has_selected_barcode = any(tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t"), na.rm = TRUE),
+        
+        # Get information from the selected sequence (where selected_barcode_fasta == yes)
+        selected_barcode_longest_stretch = ifelse(
+          any(tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t"), na.rm = TRUE),
+          barcode_longest_stretch[tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t")][1],
+          NA
+        ),
+        
+        selected_barcode_rank = ifelse(
+          any(tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t"), na.rm = TRUE),
+          barcode_rank[tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t")][1],
+          NA
+        ),
+        
+        selected_seq_id = ifelse(
+          any(tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t"), na.rm = TRUE),
+          seq_id[tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t")][1],
+          NA
+        ),
+        
+        selected_parameters = ifelse(
+          any(tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t"), na.rm = TRUE),
+          parameters[tolower(as.character(selected_barcode_fasta)) %in% c("true", "yes", "1", "t")][1],
+          NA
+        ),
+        
+        # Fallback: Prioritize best_sequence = "yes", then min barcode_rank
+        best_barcode_rank = ifelse(
+          any(tolower(as.character(best_sequence)) %in% c("true", "yes", "1", "t"), na.rm = TRUE),
+          barcode_rank[tolower(as.character(best_sequence)) %in% c("true", "yes", "1", "t")][1],
+          min(barcode_rank, na.rm = TRUE)
+        ),
+        
+        # Fallback: Get barcode_longest_stretch for the best sequence
+        fallback_barcode_longest_stretch = ifelse(
+          any(tolower(as.character(best_sequence)) %in% c("true", "yes", "1", "t"), na.rm = TRUE),
+          barcode_longest_stretch[tolower(as.character(best_sequence)) %in% c("true", "yes", "1", "t")][1],
+          barcode_longest_stretch[barcode_rank == min(barcode_rank, na.rm = TRUE)][1]
+        ),
+        
+        .groups = 'drop'
+      ) %>%
+      # Handle infinite values
+      mutate(
+        best_barcode_rank = ifelse(is.infinite(best_barcode_rank), NA, best_barcode_rank),
+        selected_barcode_longest_stretch = ifelse(is.na(selected_barcode_longest_stretch), 0, selected_barcode_longest_stretch),
+        fallback_barcode_longest_stretch = ifelse(is.na(fallback_barcode_longest_stretch), 0, fallback_barcode_longest_stretch)
+      )
+    
+    # Add coverage information
+    if (nrow(values$summary_stats) > 0 && nrow(outcome_data) > 0) {
+      # Create coverage lookup
+      coverage_data <- data.frame()
+      
+      for (i in 1:nrow(outcome_data)) {
+        process_id <- outcome_data$process_id[i]
+        seq_id <- outcome_data$selected_seq_id[i]
+        parameters <- outcome_data$selected_parameters[i]
+        has_selected <- outcome_data$has_selected_barcode[i]
+        
+        coverage_avg <- NA
+        
+        # Only look up coverage if there's a selected barcode
+        if (has_selected && !is.na(seq_id)) {
+          # Clean seq_id to match Filename in summary_stats
+          # Remove _fcleaner and _merge suffixes to get base filename
+          target_filename <- seq_id
+          target_filename <- gsub("_fcleaner_merge$", "", target_filename)
+          target_filename <- gsub("_fcleaner$", "", target_filename)
+          target_filename <- gsub("_merge$", "", target_filename)
+          
+          # Find matching row in summary stats using cleaned filename
+          matching_rows <- values$summary_stats[values$summary_stats$Filename == target_filename, ]
+          
+          if (nrow(matching_rows) > 0) {
+            matched_row <- matching_rows[1, ]
+            
+            # Check if parameters contain 'fcleaner'
+            if (!is.na(parameters) && grepl("fcleaner", parameters, ignore.case = TRUE)) {
+              # Use cleaning coverage stats
+              coverage_avg <- ifelse("cleaning_cov_avg" %in% names(matched_row), matched_row$cleaning_cov_avg, NA)
+            } else {
+              # Use regular coverage stats
+              coverage_avg <- ifelse("cov_avg" %in% names(matched_row), matched_row$cov_avg, NA)
+            }
+          }
+        }
+        
+        coverage_data <- rbind(coverage_data, data.frame(
+          process_id = process_id,
+          coverage_avg = coverage_avg,
+          stringsAsFactors = FALSE
+        ))
+      }
+      
+      # Merge coverage data
+      outcome_data <- outcome_data %>%
+        left_join(coverage_data, by = "process_id")
+    } else {
+      # Add empty coverage column if no summary stats
+      outcome_data$coverage_avg <- NA
+    }
+    
+    # Determine outcome category and create display columns
+    outcome_data <- outcome_data %>%
+      mutate(
+        # CORRECTED LOGIC: Amber for ANY rank >= 4, Red only for no selected barcode AND all ranks < 4
+        outcome_category = case_when(
+          has_selected_barcode & (is.na(selected_barcode_rank) | selected_barcode_rank <= 3) ~ "success",
+          # Check if ANY barcode rank >= 4 (selected or fallback)
+          (!is.na(selected_barcode_rank) & selected_barcode_rank >= 4) | 
+            (!is.na(best_barcode_rank) & best_barcode_rank >= 4) ~ "partial",
+          # Only Red if no selected barcode AND all ranks < 4
+          !has_selected_barcode & (!is.na(best_barcode_rank) & best_barcode_rank < 4) ~ "failed",
+          # Default fallback
+          TRUE ~ "failed"
+        ),
+        
+        # Create display columns with fallback info for Red status
+        outcome_status = case_when(
+          outcome_category == "success" ~ "✅ Success",
+          outcome_category == "partial" ~ "⚠️ Partial",
+          TRUE ~ "❌ Failed"
+        ),
+        
+        # Display barcode info: selected if available, fallback in parentheses if Red
+        display_barcode_stretch = case_when(
+          has_selected_barcode ~ as.character(selected_barcode_longest_stretch),
+          !has_selected_barcode ~ paste0("(", fallback_barcode_longest_stretch, ")"),
+          TRUE ~ NA_character_
+        ),
+        
+        display_barcode_rank = case_when(
+          has_selected_barcode ~ as.character(selected_barcode_rank),
+          !has_selected_barcode ~ paste0("(", best_barcode_rank, ")"),
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      # Select and rename columns for display (removed Coverage % and Coverage Type)
+      select(
+        `Process ID` = process_id,
+        `Status` = outcome_status,
+        `Barcode Longest Stretch` = display_barcode_stretch,
+        `Best Barcode Rank` = display_barcode_rank,
+        `Coverage Avg` = coverage_avg,
+        outcome_category
+      )
+    
+    return(outcome_data)
+  })
+  
+  # Render outcome table
+  output$outcomeTable <- renderDT({
+    outcome_data <- prepare_outcome_data()
+    
+    if (nrow(outcome_data) == 0) {
+      return(datatable(data.frame("No data available" = "Please check that FASTA compare data is loaded correctly.")))
+    }
+    
+    # Remove the outcome_category column for display
+    display_data <- outcome_data %>% select(-outcome_category)
+    
+    # Find numeric columns in the actual display data
+    numeric_columns <- which(sapply(display_data, is.numeric))
+    
+    datatable(
+      display_data,
+      options = list(
+        pageLength = 25,
+        scrollX = TRUE,
+        searchHighlight = TRUE,
+        dom = 'Bfrtip',
+        buttons = list('copy', 'csv', 'excel'),
+        columnDefs = list(
+          list(className = 'dt-center', targets = c(1)), # Status column centered
+          list(className = 'dt-right', targets = numeric_columns - 1) # Numeric columns right-aligned (0-indexed)
+        ),
+        rowCallback = JS(
+          "function(row, data, index) {",
+          "  var status = data[1];", # Status is in column 1 (0-indexed)
+          "  if (status.includes('Success')) {",
+          "    $(row).css('background-color', '#d4edda');",
+          "  } else if (status.includes('Partial')) {",
+          "    $(row).css('background-color', '#fff3cd');", 
+          "  } else if (status.includes('Failed')) {",
+          "    $(row).css('background-color', '#f8d7da');",
+          "  }",
+          "}"
+        )
+      ),
+      filter = 'top',
+      rownames = FALSE,
+      class = 'display compact',
+      extensions = 'Buttons'
+    ) %>%
+      # Only format numeric columns that actually exist
+      {if(length(numeric_columns) > 0) formatRound(., columns = numeric_columns, digits = 2) else .}
+  })
+  
+  # Render outcome summary
+  output$outcome_summary <- renderUI({
+    outcome_data <- prepare_outcome_data()
+    
+    if (nrow(outcome_data) == 0) {
+      return(div())
+    }
+    
+    # Calculate summary statistics
+    total_processes <- nrow(outcome_data)
+    success_count <- sum(outcome_data$outcome_category == "success", na.rm = TRUE)
+    partial_count <- sum(outcome_data$outcome_category == "partial", na.rm = TRUE)
+    failed_count <- sum(outcome_data$outcome_category == "failed", na.rm = TRUE)
+    
+    success_rate <- round((success_count / total_processes) * 100, 1)
+    
+    div(
+      h4("Summary Statistics", style = "color: #495057; margin-bottom: 15px;"),
+      div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;",
+          div(class = "outcome-stat", style = "background-color: white; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #495057;", total_processes),
+              div(style = "color: #6c757d; margin-top: 5px;", "Total Process IDs")
+          ),
+          div(class = "outcome-stat", style = "background-color: #d4edda; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #155724;", success_count),
+              div(style = "color: #155724; margin-top: 5px;", "Successful")
+          ),
+          div(class = "outcome-stat", style = "background-color: #fff3cd; padding: 15px; border-radius: 8px; border: 1px solid #ffeaa7; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #856404;", partial_count),
+              div(style = "color: #856404; margin-top: 5px;", "Partial")
+          ),
+          div(class = "outcome-stat", style = "background-color: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #721c24;", failed_count),
+              div(style = "color: #721c24; margin-top: 5px;", "Failed")
+          ),
+          div(class = "outcome-stat", style = "background-color: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #bbdefb; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #1976d2;", paste0(success_rate, "%")),
+              div(style = "color: #1976d2; margin-top: 5px;", "Success Rate")
+          )
+      ),
+      style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 20px;"
+    )
+  })
+  
+  # Update the outcome summary when data changes
+  observe({
+    if (values$dataset_loaded) {
+      removeUI("#outcome_summary_container > div")
+      insertUI("#outcome_summary_container", "beforeEnd", 
+               uiOutput("outcome_summary"))
+    }
+  })
+  
+  # Download handler for outcome table
+  output$downloadOutcomeTable <- downloadHandler(
+    filename = function() {
+      paste0("barcoding_outcome_", values$current_dataset, "_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      outcome_data <- prepare_outcome_data()
+      if (nrow(outcome_data) > 0) {
+        # Remove outcome_category column for export
+        export_data <- outcome_data %>% select(-outcome_category)
+        write.csv(export_data, file, row.names = FALSE)
+      } else {
+        write.csv(data.frame("No data available"), file, row.names = FALSE)
+      }
+    }
+  )
+  
+  # ===== END BARCODING OUTCOME TAB SERVER LOGIC =====
+  
   # Render Summary Stats table
   output$summaryStatsTable <- renderDT({
     req(values$dataset_loaded, nrow(values$summary_stats) > 0)
@@ -873,37 +1315,27 @@ server <- function(input, output, session) {
     }
   })
   
-  # Render summary stats scatter plot with Filename hover
+  # Function to generate 12 distinct colors for mge_params
+  get_mge_colors <- function(mge_params_values) {
+    # Create a palette of 12 distinct colors
+    color_palette <- c(
+      "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
+      "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78"
+    )
+    
+    # Create named vector mapping each unique mge_params to a color
+    unique_params <- unique(mge_params_values)
+    colors <- setNames(color_palette[1:length(unique_params)], unique_params)
+    return(colors)
+  }
+  
+  # Render summary stats scatter plot with mge_params color coding
   output$summaryStatsPlot <- renderPlotly({
     req(input$xcol, input$ycol, values$dataset_loaded, nrow(values$summary_stats) > 0)
     
-    # Check if Filename column exists
-    if ("Filename" %in% names(values$summary_stats)) {
-      # Create custom hover template with Filename
-      hover_template <- paste(
-        "Filename: %{text}<br>",
-        input$xcol, ": %{x}<br>",
-        input$ycol, ": %{y}",
-        "<extra></extra>"
-      )
-      
-      plot_ly(
-        data = values$summary_stats,
-        x = ~.data[[input$xcol]],
-        y = ~.data[[input$ycol]],
-        text = ~Filename,  # This provides the Filename for the hover
-        type = 'scatter',
-        mode = 'markers',
-        marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
-        hovertemplate = hover_template
-      ) %>%
-        layout(
-          xaxis = list(title = input$xcol),
-          yaxis = list(title = input$ycol),
-          margin = list(t = 30)
-        )
-    } else {
-      # Fallback to original plot if Filename doesn't exist
+    # Check if required columns exist
+    if (!"mge_params" %in% names(values$summary_stats)) {
+      # Fallback to original plot if mge_params doesn't exist
       plot_ly(
         data = values$summary_stats,
         x = ~.data[[input$xcol]],
@@ -917,10 +1349,84 @@ server <- function(input, output, session) {
           yaxis = list(title = input$ycol),
           margin = list(t = 30)
         )
+    } else {
+      # Get color mapping for mge_params
+      color_mapping <- get_mge_colors(values$summary_stats$mge_params)
+      
+      # Check if Filename column exists for hover
+      if ("Filename" %in% names(values$summary_stats)) {
+        # Create custom hover template with Filename and mge_params
+        hover_template <- paste(
+          "Filename: %{text}<br>",
+          "MGE Params: %{customdata}<br>",
+          input$xcol, ": %{x}<br>",
+          input$ycol, ": %{y}",
+          "<extra></extra>"
+        )
+        
+        plot_ly(
+          data = values$summary_stats,
+          x = ~.data[[input$xcol]],
+          y = ~.data[[input$ycol]],
+          color = ~mge_params,
+          colors = color_mapping,
+          text = ~Filename,
+          customdata = ~mge_params,
+          type = 'scatter',
+          mode = 'markers',
+          marker = list(size = 10, line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+          hovertemplate = hover_template
+        ) %>%
+          layout(
+            xaxis = list(title = input$xcol),
+            yaxis = list(title = input$ycol),
+            legend = list(
+              orientation = "h",
+              x = 0,
+              y = -0.2,
+              xanchor = 'left',
+              yanchor = 'top'
+            ),
+            margin = list(t = 30, b = 120)
+          )
+      } else {
+        # Create hover template without Filename
+        hover_template <- paste(
+          "MGE Params: %{customdata}<br>",
+          input$xcol, ": %{x}<br>",
+          input$ycol, ": %{y}",
+          "<extra></extra>"
+        )
+        
+        plot_ly(
+          data = values$summary_stats,
+          x = ~.data[[input$xcol]],
+          y = ~.data[[input$ycol]],
+          color = ~mge_params,
+          colors = color_mapping,
+          customdata = ~mge_params,
+          type = 'scatter',
+          mode = 'markers',
+          marker = list(size = 10, line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+          hovertemplate = hover_template
+        ) %>%
+          layout(
+            xaxis = list(title = input$xcol),
+            yaxis = list(title = input$ycol),
+            legend = list(
+              orientation = "h",
+              x = 0,
+              y = -0.2,
+              xanchor = 'left',
+              yanchor = 'top'
+            ),
+            margin = list(t = 30, b = 120)
+          )
+      }
     }
   })
   
-  # Render summary stats bar plot (n_reads_in by Process ID, grouped by mode)
+  # Render summary stats bar plot with Process ID search functionality
   output$summaryBarPlot <- renderPlotly({
     req(values$dataset_loaded, nrow(values$summary_stats) > 0)
     
@@ -934,8 +1440,30 @@ server <- function(input, output, session) {
       mutate(mode = ifelse(grepl("_merge$", mge_params), "Merge", "Concat")) %>%
       select(process_id, n_reads_in, mode) %>%
       distinct() %>%
-      arrange(process_id, mode) %>%
       filter(!is.na(n_reads_in))
+    
+    # Apply Process ID search filter
+    search_term <- input$process_id_search %||% ""
+    if (search_term != "") {
+      plot_data <- plot_data %>%
+        filter(grepl(search_term, process_id, ignore.case = TRUE))
+    }
+    
+    # If no data after filtering, return empty plot
+    if (nrow(plot_data) == 0) {
+      return(
+        plot_ly() %>%
+          layout(
+            title = list(text = "No Process IDs match your search criteria", x = 0.5),
+            xaxis = list(title = "Process ID"),
+            yaxis = list(title = "Number of Reads In"),
+            margin = list(t = 50, b = 50)
+          )
+      )
+    }
+    
+    # Sort and arrange data
+    plot_data <- plot_data %>% arrange(process_id, mode)
     
     # Get unique process_ids for ordering
     unique_process_ids <- unique(plot_data$process_id)
@@ -971,9 +1499,11 @@ server <- function(input, output, session) {
       )
     }
     
-    # Layout
+    # Layout with conditional x-axis labels
+    show_labels <- length(unique_process_ids) <= 50  # Only show labels if 50 or fewer Process IDs
+    
     p %>% layout(
-      xaxis = list(title = "Process ID", showticklabels = FALSE),
+      xaxis = list(title = "Process ID", showticklabels = show_labels),
       yaxis = list(title = "Number of Reads In"),
       barmode = 'group',
       margin = list(t = 30, b = 50),
