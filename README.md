@@ -1,5 +1,5 @@
 # Barcode Viewer Dashboard - UPDATE README
-A Shiny-based interactive dashboard for visualisation, filtering, and downloading statistics from the Barcode Gene Extractor & Evaluator (BGEE) workflow.
+A Shiny-based interactive dashboard for visualisation, filtering, and downloading statistics from the [Barcode Gene Extractor & Evaluator (BGEE)](https://github.com/bge-barcoding/BGEE) workflow.
 
 
 ## Features
