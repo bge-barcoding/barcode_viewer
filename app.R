@@ -121,48 +121,6 @@ get_available_process_ids <- function() {
   return(unique(all_process_ids[!is.na(all_process_ids) & all_process_ids != ""]))
 }
 
-# Build plate-to-process-ID mapping using sample metadata
-build_plate_index <- function() {
-  # Load metadata
-  metadata <- load_sample_metadata()
-  
-  if (nrow(metadata) == 0) {
-    message("No metadata available - cannot build plate index")
-    return(data.frame(
-      plate_id = character(),
-      process_ids = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  
-  # Extract plate IDs from Sample IDs
-  metadata$plate_id <- extract_plate_id_from_sample(metadata$sample_id)
-  
-  # Remove rows where plate_id extraction failed
-  metadata <- metadata[!is.na(metadata$plate_id) & metadata$plate_id != "", ]
-  
-  if (nrow(metadata) == 0) {
-    message("No valid plate IDs found in sample metadata")
-    return(data.frame(
-      plate_id = character(),
-      process_ids = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  
-  # Group process IDs by plate
-  plate_data <- metadata %>%
-    group_by(plate_id) %>%
-    summarise(
-      process_ids = paste(process_id, collapse = ","),
-      .groups = 'drop'
-    ) %>%
-    as.data.frame()
-  
-  message(paste("Built plate index with", nrow(plate_data), "plates"))
-  
-  return(plate_data)
-}
 
 # Parse fastp JSON files
 parse_json_file <- function(json_path, process_id) {
@@ -426,75 +384,6 @@ load_plate_data <- function(plate_id, target_process_ids) {
   )
   
   return(result)
-}
-
-# Enhanced build_plate_index with validation
-build_plate_index <- function() {
-  # Load metadata
-  metadata <- load_sample_metadata()
-  
-  if (nrow(metadata) == 0) {
-    message("No metadata available - cannot build plate index")
-    return(data.frame(
-      plate_id = character(),
-      process_ids = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  
-  message(paste("Building plate index from", nrow(metadata), "sample records"))
-  
-  # Extract plate IDs from Sample IDs
-  metadata$plate_id <- extract_plate_id_from_sample(metadata$sample_id)
-  
-  # Show extraction results for debugging
-  valid_plates <- sum(!is.na(metadata$plate_id))
-  invalid_samples <- sum(is.na(metadata$plate_id))
-  
-  message(paste("Plate ID extraction results:"))
-  message(paste("- Valid plates extracted:", valid_plates))
-  message(paste("- Invalid/excluded samples:", invalid_samples))
-  
-  if (invalid_samples > 0) {
-    invalid_sample_ids <- metadata$sample_id[is.na(metadata$plate_id)]
-    message(paste("- Invalid sample IDs:", paste(head(invalid_sample_ids, 5), collapse = ", "), 
-                  if(length(invalid_sample_ids) > 5) "..." else ""))
-  }
-  
-  # Remove rows where plate_id extraction failed
-  metadata <- metadata[!is.na(metadata$plate_id) & metadata$plate_id != "", ]
-  
-  if (nrow(metadata) == 0) {
-    message("No valid plate IDs found in sample metadata")
-    return(data.frame(
-      plate_id = character(),
-      process_ids = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  
-  # Group process IDs by plate
-  plate_data <- metadata %>%
-    group_by(plate_id) %>%
-    summarise(
-      process_ids = paste(process_id, collapse = ","),
-      sample_count = n(),
-      .groups = 'drop'
-    ) %>%
-    as.data.frame()
-  
-  # Show plate summary
-  message(paste("Built plate index with", nrow(plate_data), "plates:"))
-  for (i in 1:min(nrow(plate_data), 5)) {
-    plate_info <- plate_data[i, ]
-    process_count <- length(unlist(strsplit(plate_info$process_ids, ",")))
-    message(paste("-", plate_info$plate_id, ":", process_count, "process IDs"))
-  }
-  if (nrow(plate_data) > 5) {
-    message("- ... and more")
-  }
-  
-  return(plate_data %>% select(plate_id, process_ids))
 }
 
 # Enhanced build_plate_index with validation
@@ -927,42 +816,75 @@ server <- function(input, output, session) {
     
     target_process_ids <- unlist(strsplit(plate_row$process_ids, ","))
     
-    # Show loading
+    # Disable button and clear status
     updateActionButton(session, "load_plate", label = "Loading...", icon = NULL)
     shinyjs::disable("load_plate")
     removeUI("#plate_status div")
-    shinyjs::show("loading_section")
-    
-    # Simulate progress updates
-    session$sendCustomMessage("updateProgress", list(percent = 25, message = "Loading BGEE data"))
-    Sys.sleep(0.5)
-    session$sendCustomMessage("updateProgress", list(percent = 50, message = "Loading FASTA compare data"))
-    Sys.sleep(0.5)
-    session$sendCustomMessage("updateProgress", list(percent = 75, message = "Loading Fastp JSON data"))
-    Sys.sleep(0.5)
-    session$sendCustomMessage("updateProgress", list(percent = 100, message = "Complete"))
     
     tryCatch({
-      # Load data
+      # Load data first (without showing progress)
       result <- load_plate_data(input$plate_search, target_process_ids)
       
-      # Update reactive values
-      values$summary_stats <- result$summary_stats
-      values$fasta_compare <- result$fasta_compare
-      values$json_data <- result$json_data
-      values$current_plate <- input$plate_search
-      values$current_process_ids <- target_process_ids
-      values$dataset_loaded <- TRUE
+      # Check if any actual data was found
+      total_records <- sum(unlist(result$debug_info$records_found))
+      missing_data_types <- c()
+      if (result$debug_info$records_found$bgee_records == 0) missing_data_types <- c(missing_data_types, "BGEE")
+      if (result$debug_info$records_found$fasta_records == 0) missing_data_types <- c(missing_data_types, "FASTA")
+      if (result$debug_info$records_found$json_records == 0) missing_data_types <- c(missing_data_types, "JSON")
       
-      # Hide loading and show success
-      shinyjs::hide("loading_section")
-      
-      insertUI("#plate_status", "beforeEnd",
-               div(class = "status-message status-success",
-                   p(paste("Successfully loaded plate:", input$plate_search, 
-                           "- Process IDs:", length(target_process_ids)), style = "margin: 0;")))
-      
-      showNotification(paste("Plate", input$plate_search, "loaded successfully!"), type = "message")
+      if (total_records == 0 || length(missing_data_types) > 0) {
+        # ERROR CASE: No data found - skip loading animation entirely
+        values$summary_stats <- data.frame()
+        values$fasta_compare <- data.frame()
+        values$json_data <- data.frame()
+        values$current_plate <- ""
+        values$current_process_ids <- character()
+        values$dataset_loaded <- FALSE
+        
+        error_msg <- if (total_records == 0) {
+          paste("ERROR: No data files found for plate", input$plate_search, 
+                "- Searched", length(target_process_ids), "Process IDs but found 0 records")
+        } else {
+          paste("ERROR: Missing data types for plate", input$plate_search, 
+                "- Missing:", paste(missing_data_types, collapse = ", "))
+        }
+        
+        insertUI("#plate_status", "beforeEnd",
+                 div(class = "status-message status-error",
+                     p(error_msg, style = "margin: 0;")))
+        
+        showNotification("Failed to load plate - no data found.", type = "error")
+        
+      } else {
+        # SUCCESS CASE: Data found - show loading animation and process
+        shinyjs::show("loading_section")
+        
+        # Simulate progress updates
+        session$sendCustomMessage("updateProgress", list(percent = 25, message = "Processing BGEE data"))
+        Sys.sleep(0.5)
+        session$sendCustomMessage("updateProgress", list(percent = 50, message = "Processing FASTA compare data"))
+        Sys.sleep(0.5)
+        session$sendCustomMessage("updateProgress", list(percent = 75, message = "Processing Fastp JSON data"))
+        Sys.sleep(0.5)
+        session$sendCustomMessage("updateProgress", list(percent = 100, message = "Complete"))
+        
+        # Hide loading and update values
+        shinyjs::hide("loading_section")
+        
+        values$summary_stats <- result$summary_stats
+        values$fasta_compare <- result$fasta_compare
+        values$json_data <- result$json_data
+        values$current_plate <- input$plate_search
+        values$current_process_ids <- target_process_ids
+        values$dataset_loaded <- TRUE
+        
+        insertUI("#plate_status", "beforeEnd",
+                 div(class = "status-message status-success",
+                     p(paste("Successfully loaded plate:", input$plate_search, 
+                             "- Process IDs:", length(target_process_ids)), style = "margin: 0;")))
+        
+        showNotification(paste("Plate", input$plate_search, "loaded successfully!"), type = "message")
+      }
       
     }, error = function(e) {
       shinyjs::hide("loading_section")
