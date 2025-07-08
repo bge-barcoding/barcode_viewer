@@ -284,13 +284,13 @@ load_plate_data <- function(plate_id, target_process_ids) {
       
       if (records_found$fasta_records > 0) {
         process_ids_found$fasta_ids <- unique(result$fasta_compare$process_id)
-        message(paste("FASTA Compare: Found", records_found$fasta_records, "records for", length(process_ids_found$fasta_ids), "process IDs"))
+        message(paste("FASTA_compare: Found", records_found$fasta_records, "records for", length(process_ids_found$fasta_ids), "process IDs"))
       } else {
-        message("FASTA Compare: No records found for target process IDs")
+        message("FASTA_compare: No records found for target process IDs")
       }
     }
   } else {
-    message("FASTA compare directory does not exist")
+    message("FASTA_compare directory does not exist")
   }
   
   # Load JSON data with corrected filename parsing
@@ -368,7 +368,7 @@ load_plate_data <- function(plate_id, target_process_ids) {
     # Add warning if some data types are completely missing
     missing_types <- c()
     if (records_found$bgee_records == 0) missing_types <- c(missing_types, "BGEE Summary")
-    if (records_found$fasta_records == 0) missing_types <- c(missing_types, "FASTA Compare")
+    if (records_found$fasta_records == 0) missing_types <- c(missing_types, "FAST_compare")
     if (records_found$json_records == 0) missing_types <- c(missing_types, "Fastp JSON")
     
     if (length(missing_types) > 0) {
@@ -529,6 +529,14 @@ ui <- fluidPage(
         margin-bottom: 15px;
         border-left: 4px solid #007bff;
       }
+      .workflow-image {
+        max-width: 100%;
+        height: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: 20px 0;
+      }
     ")),
     tags$script(HTML("
       Shiny.addCustomMessageHandler('updateProgress', function(data) {
@@ -551,7 +559,7 @@ ui <- fluidPage(
                    column(6,
                           selectInput("plate_search", 
                                       "Available Plates:",
-                                      choices = c("Loading plates..." = ""),
+                                      choices = c("Loading plates... Please wait..." = ""),
                                       width = "100%")
                    ),
                    column(6,
@@ -581,7 +589,21 @@ ui <- fluidPage(
              tags$ul(
                tags$li(strong("BGEE Summary Statistics:"), " Combined statistics from the Barcode Gene Extractor & Evaluator (BGEE) pipeline."),
                tags$li(strong("Fastp Metrics:"), " Before and after read trimming statistics from Fastp (parsed from json files)."),
-               tags$li(strong("FASTA Compare Results:"), " Barcode consensus sequence comparison and quality metrics.")
+               tags$li(strong("FASTA_compare Results:"), " Barcode consensus sequence comparison, selection, and quality metrics.")
+             ),
+             
+             br(),
+             h4("Barcode Gene Extractor & Evaluator (BGEE) Workflow"),
+             div(
+               p("The BGEE (Barcode Gene Extractor & Evaluator) workflow is a comprehensive pipeline for recovery of high-quality barcode sequences from raw genome skim sequencing data derived from museum specimens. The workflow includes several quality control steps, consensus sequence generation, and validation processes to ensure reliable barcode extraction."),
+               p("The pipeline supports two main processing modes: 'concat' mode for concatenating filtered reads, and 'merge' mode for merging paired-end reads. Both pathways converge at the multi-parameter barcode recovery step (MitoGeneExtractor), followed by consensus cleaning (Fasta_cleaner), barcode consensus selection (Fasta_compare), and final barcode validation."),
+               style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
+             ),
+             div(
+               img(src = "images/workflow.png", 
+                   class = "workflow-image",
+                   alt = "BGEE Workflow Diagram showing the complete pipeline from raw reads through barcode validation"),
+               style = "text-align: center;"
              )
     ),
     
@@ -735,7 +757,7 @@ ui <- fluidPage(
     ),
     
     # FASTA Compare Results Tab
-    tabPanel("FASTA Compare Results",
+    tabPanel("FASTA_compare Results",
              br(),
              conditionalPanel(
                condition = "output.dataset_loaded == false",
@@ -746,12 +768,12 @@ ui <- fluidPage(
                condition = "output.dataset_loaded == true",
                
                div(
-                 h4("About FASTA Compare Results"),
-                 HTML("<a href='https://github.com/bge-barcoding/fasta_compare' target='_blank'>FASTA Compare</a> is the final post-processing step of the BGEE workflow."),
+                 h4("About FASTA_compare Results"),
+                 HTML("<a href='https://github.com/bge-barcoding/fasta_compare' target='_blank'>FASTA_compare</a> is the final post-processing step of the BGEE workflow."),
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               downloadButton("downloadFastaCompare", "Download Filtered FASTA Compare", class = "download-btn btn-primary"),
+               downloadButton("downloadFastaCompare", "Download Filtered FASTA_compare", class = "download-btn btn-primary"),
                DTOutput("fastaCompareTable"),
                
                hr(),
@@ -768,6 +790,9 @@ ui <- fluidPage(
 
 # Define server logic
 server <- function(input, output, session) {
+  
+  # Add resource path for serving images from data directory
+  addResourcePath("images", "./data")
   
   values <- reactiveValues(
     summary_stats = data.frame(),
@@ -862,7 +887,7 @@ server <- function(input, output, session) {
         # Simulate progress updates
         session$sendCustomMessage("updateProgress", list(percent = 25, message = "Processing BGEE data"))
         Sys.sleep(0.5)
-        session$sendCustomMessage("updateProgress", list(percent = 50, message = "Processing FASTA compare data"))
+        session$sendCustomMessage("updateProgress", list(percent = 50, message = "Processing FASTA_compare data"))
         Sys.sleep(0.5)
         session$sendCustomMessage("updateProgress", list(percent = 75, message = "Processing Fastp JSON data"))
         Sys.sleep(0.5)
@@ -995,7 +1020,7 @@ server <- function(input, output, session) {
     outcome_data <- prepare_outcome_data()
     
     if (nrow(outcome_data) == 0) {
-      return(datatable(data.frame("No data available" = "Please check that FASTA compare data is loaded correctly.")))
+      return(datatable(data.frame("No data available" = "Please check that FASTA_compare data is loaded correctly.")))
     }
     
     display_data <- outcome_data %>% select(-outcome_category)
