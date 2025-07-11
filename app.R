@@ -706,12 +706,6 @@ ui <- fluidPage(
                p("The BGEE (Barcode Gene Extractor & Evaluator) workflow is a comprehensive pipeline for recovery of high-quality barcode sequences from raw genome skim sequencing data derived from museum specimens. The workflow includes several quality control steps, consensus sequence generation, and validation processes to ensure reliable barcode extraction."),
                p("The pipeline supports two main processing modes: 'concat' mode for concatenating filtered reads, and 'merge' mode for merging paired-end reads. Both pathways converge at the multi-parameter barcode recovery step (MitoGeneExtractor), followed by consensus cleaning (Fasta_cleaner), barcode consensus selection (Fasta_compare), and final barcode validation (barcode_validator)."),
                style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
-             ),
-             div(
-               img(src = "images/workflow.png", 
-                   class = "workflow-image",
-                   alt = "BGEE Workflow Diagram showing the complete pipeline from raw reads through barcode validation"),
-               style = "text-align: center;"
              )
     ),
     
@@ -741,7 +735,7 @@ ui <- fluidPage(
                div(id = "outcome_summary_container",
                    style = "margin-bottom: 20px;"),
                
-               # Traffick light colour explanation
+               # Traffic light colour explanation
                div(
                  h4("Result Categories", style = "color: #495057; margin-bottom: 15px;"),
                  div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;",
