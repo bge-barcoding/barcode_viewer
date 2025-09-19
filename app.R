@@ -1,6 +1,5 @@
 library(shiny)
 library(DT)
-library(jsonlite)
 library(dplyr)
 library(tidyr)
 library(plotly)
@@ -9,9 +8,7 @@ library(shinyjs)
 # Base data directories for flat structure
 BASE_DIRS <- list(
   bgee_summary = "./data/bgee_summary_stats/",
-  barcode_validation = "./data/barcode_validation/",
-  fastp_json = "./data/fastp_json/",
-  metadata = "./data/"
+  barcode_validation = "./data/barcode_validation/"
 )
 
 BASE_DATA_DIR <- "./data"
@@ -144,20 +141,6 @@ get_available_process_ids <- function() {
     }
   }
   
-  # Also get process IDs from JSON files
-  if (dir.exists(BASE_DIRS$fastp_json)) {
-    json_files <- list.files(BASE_DIRS$fastp_json, pattern = "\\.json$", full.names = TRUE)
-    for (json_file in json_files) {
-      filename <- basename(json_file)
-      if (grepl("_fastp_report\\.json$", filename)) {
-        process_id <- gsub("_fastp_report\\.json$", "", filename)
-      } else {
-        process_id <- gsub("\\.json$", "", filename)
-      }
-      all_process_ids <- c(all_process_ids, process_id)
-    }
-  }
-  
   return(unique(all_process_ids[!is.na(all_process_ids) & all_process_ids != ""]))
 }
 
@@ -177,65 +160,11 @@ get_process_ids_by_project <- function(project_code) {
   return(matching_ids)
 }
 
-# Parse fastp JSON files
-parse_json_file <- function(json_path, process_id) {
-  tryCatch({
-    data <- fromJSON(json_path)
-    
-    # Helper function to safely extract numeric values
-    safe_numeric <- function(value) {
-      if (is.null(value) || length(value) == 0) {
-        return(NA_real_)
-      }
-      as.double(value)
-    }
-    
-    result <- data.frame(
-      process_id = process_id,
-      # Before filtering
-      before_total_reads = safe_numeric(data$summary$before_filtering$total_reads),
-      before_total_bases = safe_numeric(data$summary$before_filtering$total_bases),
-      before_q20_bases = safe_numeric(data$summary$before_filtering$q20_bases),
-      before_q30_bases = safe_numeric(data$summary$before_filtering$q30_bases),
-      before_q20_rate = safe_numeric(data$summary$before_filtering$q20_rate),
-      before_q30_rate = safe_numeric(data$summary$before_filtering$q30_rate),
-      before_read1_mean_length = safe_numeric(data$summary$before_filtering$read1_mean_length),
-      before_read2_mean_length = safe_numeric(data$summary$before_filtering$read2_mean_length),
-      before_gc_content = safe_numeric(data$summary$before_filtering$gc_content),
-      # After filtering
-      after_total_reads = safe_numeric(data$summary$after_filtering$total_reads),
-      after_total_bases = safe_numeric(data$summary$after_filtering$total_bases),
-      after_q20_bases = safe_numeric(data$summary$after_filtering$q20_bases),
-      after_q30_bases = safe_numeric(data$summary$after_filtering$q30_bases),
-      after_q20_rate = safe_numeric(data$summary$after_filtering$q20_rate),
-      after_q30_rate = safe_numeric(data$summary$after_filtering$q30_rate),
-      after_read1_mean_length = safe_numeric(data$summary$after_filtering$read1_mean_length),
-      after_read2_mean_length = safe_numeric(data$summary$after_filtering$read2_mean_length),
-      after_gc_content = safe_numeric(data$summary$after_filtering$gc_content),
-      # Filtering results
-      passed_filter_reads = safe_numeric(data$filtering_result$passed_filter_reads),
-      low_quality_reads = safe_numeric(data$filtering_result$low_quality_reads),
-      too_many_N_reads = safe_numeric(data$filtering_result$too_many_N_reads),
-      too_short_reads = safe_numeric(data$filtering_result$too_short_reads),
-      too_long_reads = safe_numeric(data$filtering_result$too_long_reads),
-      # Duplication
-      duplication_rate = safe_numeric(data$duplication$rate),
-      stringsAsFactors = FALSE
-    )
-    
-    return(result)
-  }, error = function(e) {
-    message(paste("Error parsing JSON for", process_id, ":", e$message))
-    return(NULL)
-  })
-}
-
 # Enhanced data loading with proper validation (renamed from load_plate_data)
 load_data <- function(identifier, target_process_ids, identifier_type = "plate") {
   result <- list(
     summary_stats = data.frame(),
     barcode_validation = data.frame(),
-    json_data = data.frame(),
     status = "",
     debug_info = list()
   )
@@ -243,14 +172,12 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
   # Track actual records found for target process IDs
   records_found <- list(
     bgee_records = 0,
-    validation_records = 0, 
-    json_records = 0
+    validation_records = 0
   )
   
   process_ids_found <- list(
     bgee_ids = character(),
-    validation_ids = character(),
-    json_ids = character()
+    validation_ids = character()
   )
   
   message(paste("Loading data for", identifier_type, ":", identifier))
@@ -352,51 +279,8 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
     message("Barcode Validation directory does not exist")
   }
   
-  # Load JSON data with corrected filename parsing
-  if (dir.exists(BASE_DIRS$fastp_json)) {
-    json_files <- list.files(BASE_DIRS$fastp_json, pattern = "\\.json$", full.names = TRUE)
-    json_data_list <- list()
-    
-    message(paste("Found", length(json_files), "JSON files in fastp_json directory"))
-    
-    for (json_file in json_files) {
-      # Extract process ID from filename: [ProcessID]_fastp_report.json
-      filename <- basename(json_file)
-      
-      # Remove _fastp_report.json suffix to get process ID
-      if (grepl("_fastp_report\\.json$", filename)) {
-        process_id <- gsub("_fastp_report\\.json$", "", filename)
-      } else {
-        # Fallback: remove .json extension
-        process_id <- gsub("\\.json$", "", filename)
-      }
-      
-      # Only process if this process_id is in our target list
-      if (process_id %in% target_process_ids) {
-        parsed_data <- parse_json_file(json_file, process_id)
-        if (!is.null(parsed_data)) {
-          json_data_list[[length(json_data_list) + 1]] <- parsed_data
-          process_ids_found$json_ids <- c(process_ids_found$json_ids, process_id)
-          message(paste("Successfully parsed JSON for process ID:", process_id))
-        } else {
-          message(paste("Failed to parse JSON for process ID:", process_id))
-        }
-      }
-    }
-    
-    if (length(json_data_list) > 0) {
-      result$json_data <- bind_rows(json_data_list)
-      records_found$json_records <- nrow(result$json_data)
-      message(paste("JSON Data: Successfully loaded", records_found$json_records, "records"))
-    } else {
-      message("JSON Data: No JSON files found for target process IDs")
-    }
-  } else {
-    message("Fastp JSON directory does not exist")
-  }
-  
   # Generate status based on ACTUAL RECORDS FOUND
-  total_records_found <- records_found$bgee_records + records_found$validation_records + records_found$json_records
+  total_records_found <- records_found$bgee_records + records_found$validation_records
   
   if (total_records_found == 0) {
     # No actual data records found
@@ -414,21 +298,16 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
       loaded_items <- c(loaded_items, paste("Validation:", records_found$validation_records, "records"))
     }
     
-    if (records_found$json_records > 0) {
-      loaded_items <- c(loaded_items, paste("JSON:", records_found$json_records, "records"))
-    }
-    
     result$status <- paste("Successfully loaded:", paste(loaded_items, collapse = ", "))
     
     # Add process ID summary
-    unique_process_ids_found <- unique(c(process_ids_found$bgee_ids, process_ids_found$validation_ids, process_ids_found$json_ids))
+    unique_process_ids_found <- unique(c(process_ids_found$bgee_ids, process_ids_found$validation_ids))
     result$status <- paste(result$status, "- Found data for", length(unique_process_ids_found), "of", length(target_process_ids), "Process IDs")
     
     # Add warning if some data types are completely missing
     missing_types <- c()
     if (records_found$bgee_records == 0) missing_types <- c(missing_types, "BGEE Summary")
     if (records_found$validation_records == 0) missing_types <- c(missing_types, "Barcode Validation")
-    if (records_found$json_records == 0) missing_types <- c(missing_types, "Fastp JSON")
     
     if (length(missing_types) > 0) {
       result$status <- paste(result$status, "- WARNING: Missing data types:", paste(missing_types, collapse = ", "))
@@ -536,19 +415,6 @@ check_taxonomic_match <- function(bold_family, taxonomic_id) {
   }
 }
 
-# Smart number formatting function
-smart_format_number <- function(x) {
-  if (is.na(x) || !is.numeric(x)) return(as.character(x))
-  
-  rounded <- round(x, 2)
-  
-  if (rounded == round(rounded, 0)) {
-    return(as.character(as.integer(rounded)))
-  } else {
-    return(sprintf("%.2f", rounded))
-  }
-}
-
 # Define UI
 ui <- fluidPage(
   useShinyjs(),
@@ -583,13 +449,6 @@ ui <- fluidPage(
         border-radius: 8px;
         border: 1px solid #dee2e6;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      }
-      .proportions-control {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 8px;
-        margin-bottom: 15px;
-        border-left: 4px solid #007bff;
       }
       .workflow-image {
         max-width: 100%;
@@ -696,7 +555,6 @@ ui <- fluidPage(
              p("Once you select and load a plate or project, you can navigate to the other tabs to view:"),
              tags$ul(
                tags$li(strong("BGEE Summary Statistics:"), " Combined statistics from the Barcode Gene Extractor & Evaluator (BGEE) pipeline."),
-               tags$li(strong("Fastp Metrics:"), " Before and after read trimming statistics from Fastp (parsed from json files)."),
                tags$li(strong("Barcode Validation:"), " Structural and taxonomic validation of barcode consensus sequences output by BGEE pipeline.")
              ),
              
@@ -758,52 +616,11 @@ ui <- fluidPage(
                  style = "background-color: white; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; margin-bottom: 20px;"
                ),
                
-               # Download button
+			   # Download button
                downloadButton("downloadOutcomeTable", "Download Outcome Table", class = "download-btn btn-primary"),
                
                # Outcome table
                DTOutput("outcomeTable")
-             )
-    ),
-    
-    # Fastp Metrics Tab
-    tabPanel("Fastp Metrics",
-             br(),
-             conditionalPanel(
-               condition = "output.dataset_loaded == false",
-               div(p("Please select and load a plate or project from the 'Search Results' tab first."),
-                   style = "color: #6c757d; font-style: italic;")
-             ),
-             conditionalPanel(
-               condition = "output.dataset_loaded == true",
-               
-               div(
-                 h4("About Fastp Metrics"),
-                 HTML("Fastp metrics are generated from JSON output files of the <a href='https://github.com/OpenGene/fastp' target='_blank'>fastp preprocessing tool</a>. These files contain detailed statistics about read quality before and after filtering."),
-                 style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
-               ),
-               
-               downloadButton("downloadJsonData", "Download Filtered JSON Data", class = "download-btn btn-primary"),
-               DTOutput("jsonDataTable"),
-               
-               hr(),
-               h4("Process ID Overview"),
-               fluidRow(
-                 column(4, selectInput("json_bar_ycol", "Y Axis:", choices = NULL)),
-                 column(4, div(class = "proportions-control",
-                               checkboxInput("show_proportions", "Show as proportions (%)", value = FALSE),
-                               style = "margin-top: 5px;")),
-                 column(4, div(style = "height: 34px;"))
-               ),
-               plotlyOutput("jsonBarPlot", height = "400px"),
-               
-               hr(),
-               h4("Interactive Scatter Plot"),
-               fluidRow(
-                 column(6, selectInput("json_xcol", "X Axis:", choices = NULL)),
-                 column(6, selectInput("json_ycol", "Y Axis:", choices = NULL))
-               ),
-               plotlyOutput("jsonDataPlot", height = "500px")
              )
     ),
     
@@ -914,7 +731,6 @@ server <- function(input, output, session) {
   values <- reactiveValues(
     summary_stats = data.frame(),
     barcode_validation = data.frame(),
-    json_data = data.frame(),
     dataset_loaded = FALSE,
     plate_index = data.frame(),
     current_identifier = "",
@@ -1012,13 +828,11 @@ server <- function(input, output, session) {
       missing_data_types <- c()
       if (result$debug_info$records_found$bgee_records == 0) missing_data_types <- c(missing_data_types, "BGEE")
       if (result$debug_info$records_found$validation_records == 0) missing_data_types <- c(missing_data_types, "Validation")
-      if (result$debug_info$records_found$json_records == 0) missing_data_types <- c(missing_data_types, "JSON")
       
       if (total_records == 0 || length(missing_data_types) > 0) {
         # ERROR CASE: No data found - skip loading animation entirely
         values$summary_stats <- data.frame()
         values$barcode_validation <- data.frame()
-        values$json_data <- data.frame()
         values$current_identifier <- ""
         values$current_identifier_type <- ""
         values$current_process_ids <- character()
@@ -1042,12 +856,10 @@ server <- function(input, output, session) {
         # SUCCESS CASE: Data found - show loading animation and process
         shinyjs::show("loading_section")
         
-        # Simulate progress updates
-        session$sendCustomMessage("updateProgress", list(percent = 25, message = "Processing BGEE data"))
+        # Simulate progress updates (adjusted for 2 data types instead of 3)
+        session$sendCustomMessage("updateProgress", list(percent = 33, message = "Processing BGEE data"))
         Sys.sleep(0.5)
-        session$sendCustomMessage("updateProgress", list(percent = 50, message = "Processing Barcode Validation data"))
-        Sys.sleep(0.5)
-        session$sendCustomMessage("updateProgress", list(percent = 75, message = "Processing Fastp JSON data"))
+        session$sendCustomMessage("updateProgress", list(percent = 66, message = "Processing Barcode Validation data"))
         Sys.sleep(0.5)
         session$sendCustomMessage("updateProgress", list(percent = 100, message = "Complete"))
         
@@ -1056,7 +868,6 @@ server <- function(input, output, session) {
         
         values$summary_stats <- result$summary_stats
         values$barcode_validation <- result$barcode_validation
-        values$json_data <- result$json_data
         values$current_identifier <- identifier
         values$current_identifier_type <- identifier_type
         values$current_process_ids <- target_process_ids
@@ -1479,7 +1290,7 @@ server <- function(input, output, session) {
                 if (type === 'display' && data !== null && data !== undefined) {
                   var num = Number(data);
                   if (!isNaN(num)) {
-                    if (num % 1 === 0) {
+				  if (num % 1 === 0) {
                       return num.toString();
                     } else {
                       return num.toFixed(2);
@@ -1499,60 +1310,7 @@ server <- function(input, output, session) {
     )
   })
   
-  output$jsonDataTable <- renderDT({
-    req(values$dataset_loaded, nrow(values$json_data) > 0)
-    
-    # Filter out unwanted columns for display
-    columns_to_remove <- c(
-      "before_q20_bases", "before_q30_bases", "before_q20_rate", "before_q30_rate", 
-      "before_read1_mean_length", "before_read2_mean_length", "before_gc_content",
-      "after_q20_bases", "after_q30_bases", "after_q20_rate", "after_q30_rate", 
-      "too_long_reads"
-    )
-    
-    display_data <- values$json_data %>%
-      select(-any_of(columns_to_remove))
-    
-    numeric_cols <- which(sapply(display_data, is.numeric))
-    
-    datatable(
-      display_data,
-      options = list(
-        pageLength = 25,
-        scrollX = TRUE,
-        searchHighlight = TRUE,
-        dom = 'Bfrtip',
-        buttons = list('copy', 'csv', 'excel'),
-        columnDefs = list(
-          list(className = 'dt-right', targets = numeric_cols - 1),
-          list(
-            targets = numeric_cols - 1,
-            render = JS("
-              function(data, type, row) {
-                if (type === 'display' && data !== null && data !== undefined) {
-                  var num = Number(data);
-                  if (!isNaN(num)) {
-                    if (num % 1 === 0) {
-                      return num.toString();
-                    } else {
-                      return num.toFixed(2);
-                    }
-                  }
-                }
-                return data;
-              }
-            ")
-          )
-        )
-      ),
-      filter = 'top',
-      rownames = FALSE,
-      class = 'display compact',
-      extensions = 'Buttons'
-    )
-  })
-  
-  # Update column selectors
+  # Update column selectors for summary stats
   observe({
     if (values$dataset_loaded && nrow(values$summary_stats) > 0) {
       numeric_cols <- names(values$summary_stats)[sapply(values$summary_stats, is.numeric)]
@@ -1563,29 +1321,7 @@ server <- function(input, output, session) {
     }
   })
   
-  observe({
-    if (values$dataset_loaded && nrow(values$json_data) > 0) {
-      columns_to_remove <- c(
-        "before_q20_bases", "before_q30_bases", "before_q20_rate", "before_q30_rate", 
-        "before_read1_mean_length", "before_read2_mean_length", "before_gc_content",
-        "after_q20_bases", "after_q30_bases", "after_q20_rate", "after_q30_rate", 
-        "too_long_reads"
-      )
-      
-      available_cols <- names(values$json_data)[!names(values$json_data) %in% columns_to_remove]
-      numeric_cols <- available_cols[sapply(values$json_data[available_cols], is.numeric)]
-      
-      if (length(numeric_cols) > 0) {
-        updateSelectInput(session, "json_xcol", choices = numeric_cols, selected = numeric_cols[1])
-        updateSelectInput(session, "json_ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
-        
-        bar_choices <- available_cols[available_cols != "process_id"]
-        updateSelectInput(session, "json_bar_ycol", choices = bar_choices, selected = bar_choices[1])
-      }
-    }
-  })
-  
-  # Render plots
+  # Render summary stats plot
   output$summaryStatsPlot <- renderPlotly({
     req(input$xcol, input$ycol, values$dataset_loaded, nrow(values$summary_stats) > 0)
     
@@ -1601,67 +1337,6 @@ server <- function(input, output, session) {
         xaxis = list(title = input$xcol),
         yaxis = list(title = input$ycol),
         margin = list(t = 30)
-      )
-  })
-  
-  output$jsonDataPlot <- renderPlotly({
-    req(input$json_xcol, input$json_ycol, values$dataset_loaded, nrow(values$json_data) > 0)
-    
-    plot_ly(
-      data = values$json_data,
-      x = ~.data[[input$json_xcol]],
-      y = ~.data[[input$json_ycol]],
-      type = 'scatter',
-      mode = 'markers',
-      marker = list(size = 10, color = 'rgba(255, 99, 71, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
-    ) %>%
-      layout(
-        xaxis = list(title = input$json_xcol),
-        yaxis = list(title = input$json_ycol),
-        margin = list(t = 30)
-      )
-  })
-  
-  output$jsonBarPlot <- renderPlotly({
-    req(input$json_bar_ycol, values$dataset_loaded, nrow(values$json_data) > 0)
-    
-    if (!"process_id" %in% names(values$json_data) || !input$json_bar_ycol %in% names(values$json_data)) {
-      return(NULL)
-    }
-    
-    plot_data <- values$json_data %>%
-      select(process_id, !!sym(input$json_bar_ycol)) %>%
-      distinct() %>%
-      arrange(process_id) %>%
-      filter(!is.na(!!sym(input$json_bar_ycol)))
-    
-    if (nrow(plot_data) == 0) {
-      return(plot_ly() %>% 
-               layout(title = "No data available for selected column"))
-    }
-    
-    y_values <- plot_data[[input$json_bar_ycol]]
-    y_title <- input$json_bar_ycol
-    
-    if (isTRUE(input$show_proportions)) {
-      max_val <- max(y_values, na.rm = TRUE)
-      if (max_val > 0 && is.finite(max_val)) {
-        y_values <- (y_values / max_val) * 100
-        y_title <- paste(input$json_bar_ycol, "(%)")
-      }
-    }
-    
-    plot_ly(
-      data = plot_data,
-      x = ~factor(process_id),
-      y = y_values,
-      type = 'bar',
-      marker = list(color = 'rgba(255, 99, 71, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
-    ) %>%
-      layout(
-        xaxis = list(title = "Process ID", showticklabels = FALSE),
-        yaxis = list(title = y_title),
-        margin = list(t = 30, b = 50)
       )
   })
   
@@ -1698,15 +1373,6 @@ server <- function(input, output, session) {
     },
     content = function(file) {
       write.csv(values$barcode_validation, file, row.names = FALSE)
-    }
-  )
-  
-  output$downloadJsonData <- downloadHandler(
-    filename = function() {
-      paste0("json_data_", values$current_identifier, "_", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      write.csv(values$json_data, file, row.names = FALSE)
     }
   )
   
