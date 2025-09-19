@@ -18,13 +18,13 @@ OR
 
 
 ## Features
-### Search & loading options
+### Search & loading options:
 - **Plate selection**: Select and browse results for Process IDs in specific plates (BGE_XXXXX format).
 - **Project selection**: Filter results by project codes to view all Process IDs containing specific project identifiers (e.g. BSNHM, BSNTN, BIOSC, etc).
 - **Progress tracking**: Data loading progress and status updates.
 - **Data validation**: Logging and error reporting for missing data.
 
-### Barcoding outcome overview
+### Barcoding outcome overview:
 - 🟢 **Green - Pass**: Both structural and taxonomic validation successful.
 - 🟡 **Amber - Partial**: Either structural OR taxonomic validation successful (still considered overall fail).
 - 🔴 **Red - Fail**: Neither structural nor taxonomic validation successful.
@@ -40,15 +40,15 @@ OR
 - **BOLD systems integration**: Clickable Process ID links to corresponding BOLD database records.
 - **Summary statistics**: Pass rates and outcome distributions with visual summaries.
 
-### FASTA Sequences
+### FASTA Sequences:
 - **Barcode sequences**: View and download consensus barcode sequences in FASTA format.
 - **Export options**: Download FASTA files or copy sequences to clipboard.
 
-### Interactive visualisation(s)
+### Interactive visualisation(s):
 - **Scatter plots**: Interactive plotly charts with customisable X/Y axes across all data types.
 - **Bar charts**: Process ID overview with proportional display options for fastp metrics.
 
-### Supported Data
+## Supported Data
 The dashboard can filter results by plate ID, with 451 plates supported:
 ```
 e.g., BGE_00001, BGE_00002, BGE_00003, etc.
@@ -60,7 +60,7 @@ BGENL, DTKNU, BBIOP, BHNHM, UNIFI, DTULO, MEAMP, MUSBA, BGSNL,
 BGSNH, BGEPL, EBGEP, BSCRO, BIOSC, INVBG, BCEMI, ILECA, ALPFU
 ```
 
-### Workflow usage 
+## Workflow usage 
 1. **Select data**: Choose either:
    - **Plate**: Select a specific plate from the dropdown (e.g., BGE_00001)
    - **Project**: Select a project code to view all Process IDs containing that identifier
