@@ -741,7 +741,7 @@ ui <- fluidPage(
                  div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;",
                      div(style = "background-color: #d4edda; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;",
                          div(style = "font-weight: bold; color: #155724; margin-bottom: 5px;", "🟢 Green - Pass"),
-                         p("Structural validation successful (≥500bp in length, 0 ambiguous bases, no stop codons, Reading frame 1/2/3) AND Taxonomic validation successful (BOLD family exactly matches a term in taxonomic ID).", 
+                         p("Structural validation successful (zero ambiguous bases in original sequence, zero stop codons, valid reading frame 1/2/3, minimal N count in barcode region, longest sequence) AND Taxonomic validation successful (BOLD family exactly matches a term in taxonomic ID).", 
                            style = "margin: 0; color: #155724; font-size: 0.9em;")
                      ),
                      div(style = "background-color: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107;",
@@ -850,7 +850,7 @@ ui <- fluidPage(
                
                div(
                  h4("About Barcode Validation"),
-                 HTML("<a href='https://github.com/bge-barcoding/barcode_validator' target='_blank'>Barcode Validation</a> is the final validation step of the BGEE workflow, and consists of structural and taxonmic validation of each barcode consensus sequence."),
+                 HTML("<a href='https://github.com/bge-barcoding/barcode_validator' target='_blank'>Barcode Validation</a> is the final validation step of the BGEE workflow, and consists of structural and taxonomic validation of each barcode consensus sequence."),
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
@@ -1085,7 +1085,7 @@ server <- function(input, output, session) {
     shinyjs::enable("load_data")
   })
   
-  # Prepare outcome data based on barcode validation
+  # Prepare outcome data based on barcode validation with hierarchical selection
   prepare_outcome_data <- reactive({
     req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
     
@@ -1093,35 +1093,93 @@ server <- function(input, output, session) {
       return(data.frame())
     }
     
-    # Group by process_id and determine validation outcome
+    # Function to select best sequence using hierarchical criteria
+    select_best_sequence <- function(sequences) {
+      # Step 1: Filter to sequences with ambig_original == 0
+      step1 <- sequences[sequences$ambig_original == 0 & !is.na(sequences$ambig_original), ]
+      if (nrow(step1) == 0) return(list(selected = NULL, structural_pass = FALSE))
+      
+      # Step 2: From those, pick ones with stop_codons == 0
+      step2 <- step1[step1$stop_codons == 0 & !is.na(step1$stop_codons), ]
+      if (nrow(step2) == 0) return(list(selected = NULL, structural_pass = FALSE))
+      
+      # Step 3: From those, pick ones with reading_frame in 1,2,3
+      step3 <- step2[step2$reading_frame %in% c(1, 2, 3) & !is.na(step2$reading_frame), ]
+      if (nrow(step3) == 0) return(list(selected = NULL, structural_pass = FALSE))
+      
+      # Step 4: From those, pick ones with min(ambig_basecount)
+      min_ambig <- min(step3$ambig_basecount, na.rm = TRUE)
+      if (is.infinite(min_ambig)) return(list(selected = NULL, structural_pass = FALSE))
+      step4 <- step3[step3$ambig_basecount == min_ambig & !is.na(step3$ambig_basecount), ]
+      if (nrow(step4) == 0) return(list(selected = NULL, structural_pass = FALSE))
+      
+      # Step 5: From those, pick ones with max(nuc_basecount)
+      max_length <- max(step4$nuc_basecount, na.rm = TRUE)
+      if (is.infinite(max_length)) return(list(selected = NULL, structural_pass = FALSE))
+      step5 <- step4[step4$nuc_basecount == max_length & !is.na(step4$nuc_basecount), ]
+      if (nrow(step5) == 0) return(list(selected = NULL, structural_pass = FALSE))
+      
+      # Step 6: If there are still ties, pick the one with highest cov_med
+      if (nrow(step5) > 1 && "cov_med" %in% names(step5)) {
+        max_cov_med <- max(step5$cov_med, na.rm = TRUE)
+        if (!is.infinite(max_cov_med)) {
+          step6 <- step5[step5$cov_med == max_cov_med & !is.na(step5$cov_med), ]
+          if (nrow(step6) > 0) {
+            step5 <- step6
+          }
+        }
+      }
+      
+      # If there are still ties after all criteria, just take the first one
+      selected_sequence <- step5[1, ]
+      
+      return(list(selected = selected_sequence, structural_pass = TRUE))
+    }
+    
+    # Group by process_id and apply hierarchical selection
     outcome_data <- values$barcode_validation %>%
       group_by(process_id) %>%
-      summarise(
-        # Check structural validation criteria - UPDATED CRITERIA
-        has_sufficient_length = any(nuc_basecount >= 500, na.rm = TRUE),
-        has_no_ambiguous = any(ambig_basecount == 0, na.rm = TRUE),  # Changed from <= 6 to == 0
-        has_no_stop_codons = any(stop_codons == 0, na.rm = TRUE),
-        has_reading_frame = any(reading_frame %in% c(1, 2, 3), na.rm = TRUE),  # Changed from == 1 to 1,2,3
+      group_modify(~ {
+        result <- select_best_sequence(.x)
         
-        # Get best values for display
-        best_length = ifelse(any(!is.na(nuc_basecount)), max(nuc_basecount, na.rm = TRUE), NA),
-        best_ambig = ifelse(any(!is.na(ambig_basecount)), min(ambig_basecount, na.rm = TRUE), NA),
-        best_stop_codons = ifelse(any(!is.na(stop_codons)), min(stop_codons, na.rm = TRUE), NA),
-        best_frame = ifelse(any(!is.na(reading_frame)), max(reading_frame, na.rm = TRUE), NA),
-        best_identification = ifelse(any(!is.na(identification) & identification != ""), 
-                                     first(identification[!is.na(identification) & identification != ""]), NA_character_),
-        best_taxonomic_id = ifelse(any(!is.na(obs_taxon) & obs_taxon != ""), 
-                                   first(obs_taxon[!is.na(obs_taxon) & obs_taxon != ""]), NA_character_),
-        
-        .groups = 'drop'
-      ) %>%
+        if (result$structural_pass) {
+          # Use the selected sequence values
+          selected <- result$selected
+          data.frame(
+            structural_pass = TRUE,
+            best_length = selected$nuc_basecount,
+            best_ambig_original = selected$ambig_original,
+            best_ambig = selected$ambig_basecount,
+            best_stop_codons = selected$stop_codons,
+            best_frame = selected$reading_frame,
+            best_identification = ifelse(is.na(selected$identification) || selected$identification == "", 
+                                       NA_character_, selected$identification),
+            best_taxonomic_id = ifelse(is.na(selected$obs_taxon) || selected$obs_taxon == "", 
+                                     NA_character_, selected$obs_taxon),
+            stringsAsFactors = FALSE
+          )
+        } else {
+          # Structural validation failed - use NA values
+          data.frame(
+            structural_pass = FALSE,
+            best_length = NA_real_,
+            best_ambig_original = NA_real_,
+            best_ambig = NA_real_,
+            best_stop_codons = NA_real_,
+            best_frame = NA_real_,
+            best_identification = NA_character_,
+            best_taxonomic_id = NA_character_,
+            stringsAsFactors = FALSE
+          )
+        }
+      }) %>%
+      ungroup() %>%
       mutate(
-        # Check taxonomic match using new function
+        # Check taxonomic match using existing function
         taxonomic_match = mapply(check_taxonomic_match, best_identification, best_taxonomic_id),
         taxonomic_pass = taxonomic_match == "YES",
         
-        # Determine overall validation status with amber category
-        structural_pass = has_sufficient_length & has_no_ambiguous & has_no_stop_codons & has_reading_frame,
+        # Determine overall validation status
         overall_pass = structural_pass & taxonomic_pass,
         partial_pass = (structural_pass & !taxonomic_pass) | (!structural_pass & taxonomic_pass),
         
@@ -1138,6 +1196,7 @@ server <- function(input, output, session) {
         
         # Display values
         display_length = ifelse(!is.na(best_length), as.character(best_length), "N/A"),
+        display_ambig_original = ifelse(!is.na(best_ambig_original), as.character(best_ambig_original), "N/A"),
         display_ambig = ifelse(!is.na(best_ambig), as.character(best_ambig), "N/A"),
         display_stop = ifelse(!is.na(best_stop_codons), as.character(best_stop_codons), "N/A"),
         display_frame = ifelse(!is.na(best_frame), as.character(best_frame), "N/A"),
@@ -1151,7 +1210,8 @@ server <- function(input, output, session) {
         `Process ID` = process_id_link,
         `Status` = outcome_status,
         `Barcode Length` = display_length,
-        `N Count` = display_ambig,
+        `Original N Count` = display_ambig_original,
+        `Barcode N Count` = display_ambig,
         `Stop Codons` = display_stop,
         `Reading Frame` = display_frame,
         `BOLD Family` = display_family,
@@ -1183,7 +1243,7 @@ server <- function(input, output, session) {
         dom = 'Bfrtip',
         buttons = list('copy', 'csv', 'excel'),
         columnDefs = list(
-          list(className = 'dt-center', targets = c(1, 8))  # Center Status and Taxonomic match columns
+          list(className = 'dt-center', targets = c(1, 9))  # Center Status and Taxonomic match columns
         ),
         rowCallback = JS(
           "function(row, data, index) {",
@@ -1397,18 +1457,8 @@ server <- function(input, output, session) {
   output$barcodeValidationTable <- renderDT({
     req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
     
-    # Select and rename the specific columns requested
-    display_data <- values$barcode_validation %>%
-      select(
-        `Process ID` = process_id,
-        `N count` = ambig_basecount,
-        `Barcode length` = nuc_basecount,
-        `Frame` = reading_frame,
-        `Stop codons` = stop_codons,
-        `BOLD species` = species,
-        `BOLD family` = identification,
-        `Taxonomic ID` = obs_taxon
-      )
+    # Show ALL columns from the barcode validation TSV
+    display_data <- values$barcode_validation
     
     numeric_cols <- which(sapply(display_data, is.numeric))
     

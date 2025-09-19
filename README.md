@@ -15,7 +15,13 @@ A Shiny-based interactive dashboard for visualisation, filtering, and downloadin
   - 🟡 **Amber - Partial**: Either structural OR taxonomic validation successful (still considered overall fail).
   - 🔴 **Red - Fail**: Neither structural nor taxonomic validation successful.
 - **Validation Criteria**:
-  - **Structural**: ≥500bp length, 0 ambiguous bases, no stop codons, valid reading frame (1/2/3).
+  - **Structural**:
+	1. Filter to sequences with ambig_original == 0 (no ambiguous bases in original sequence)
+	2. From those, pick ones with stop_codons == 0 (no stop codons)
+	3. From those, pick ones with reading_frame in [1,2,3] (valid reading frames)
+	4. From those, pick ones with min(ambig_basecount) (fewest Ns in HMM-extracted barcode region)
+	5. From those, pick ones with max(nuc_basecount) (longest sequence)
+	6. If multiple sequences remain, pick the one with highest cov_med (best median coverage as final tie-breaker)
   - **Taxonomic**: Exact word match between family rank in BOLD and taxonomic databases.
 - **BOLD Systems Integration**: Clickable Process ID links to BOLD database records.
 - **Summary Statistics**: Pass rates and outcome distributions with visual summaries.
