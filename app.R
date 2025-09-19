@@ -9,7 +9,7 @@ library(shinyjs)
 BASE_DIRS <- list(
   bgee_summary = "./data/bgee_summary_stats/",
   barcode_validation = "./data/barcode_validation/",
-  barcode_validation_merged = "./data/barcode_validation/merged/",  # NEW
+  barcode_validation_merged = "./data/barcode_validation/merged/",
   barcodes = "./data/barcodes/"
 )
 
@@ -839,15 +839,14 @@ ui <- fluidPage(
                condition = "output.dataset_loaded == true",
                
                # Static description text area
-               # Static description text area
                div(
                  h3("Barcoding Outcome Overview"),
                  p("Overview of barcode recovery outcomes for all Process IDs in the loaded plate or project, showing structural and taxonomic validation status."),
                  p("Process IDs in the table below will take you directly to the corresponding record in the ",
-                   a("BOLD Systems database", href = "https://portal.boldsystems.org", target = "_blank"),                 ),
+                   a("BOLD Systems database", href = "https://portal.boldsystems.org", target = "_blank"))
+                 ,
                  style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;"
-               )
-               ,
+               ),
                
                # Summary
                div(id = "outcome_summary_container",
@@ -914,7 +913,7 @@ ui <- fluidPage(
              )
     ),
     
-    # Barcode Validation Tab (merged data)
+    # Barcode Validation Tab (merged data) - WITH INTERACTIVE PLOT
     tabPanel("Barcode Validation",
              br(),
              conditionalPanel(
@@ -931,8 +930,16 @@ ui <- fluidPage(
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               downloadButton("downloadBarcodeValidation", "Download Merged Barcode Validation Data", class = "download-btn btn-primary"),
-               DTOutput("barcodeValidationTable")
+               downloadButton("downloadBarcodeValidation", "Download Filtered Barcode Validation Data", class = "download-btn btn-primary"),
+               DTOutput("barcodeValidationTable"),
+               
+               hr(),
+               h4("Interactive Scatter Plot"),
+               fluidRow(
+                 column(6, selectInput("validation_ycol", "Y Axis:", choices = NULL)),
+                 column(6, selectInput("validation_xcol", "X Axis:", choices = NULL))
+               ),
+               plotlyOutput("barcodeValidationPlot", height = "500px")
              )
     ),
     
@@ -1226,6 +1233,38 @@ server <- function(input, output, session) {
     return(outcome_data)
   })
   
+  # Function to filter and reorder barcode validation columns
+  prepare_filtered_barcode_validation <- reactive({
+    req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
+    
+    # Define the desired column order
+    desired_columns <- c("Filename", "process_id", "fasta_header", "mge_params", 
+                         "marker_code", "nuc_basecount", "nuc_full_basecount", 
+                         "sequence", "ambig_original", "ambig_basecount", 
+                         "ambig_full_basecount", "stop_codons", "reading_frame",
+                         "identification", "species", "identification_method", 
+                         "identification_rank", "obs_taxon", "BOLD_submissions", "error")
+    
+    # Get available columns from the data
+    available_columns <- names(values$barcode_validation)
+    
+    # Find which desired columns are actually available
+    columns_to_select <- desired_columns[desired_columns %in% available_columns]
+    
+    if (length(columns_to_select) == 0) {
+      # If none of the desired columns are available, return the original data
+      return(values$barcode_validation)
+    }
+    
+    # Select and reorder the columns
+    filtered_data <- values$barcode_validation %>%
+      select(all_of(columns_to_select))
+    
+    message(paste("Filtered barcode validation data to", ncol(filtered_data), "columns out of", ncol(values$barcode_validation), "available"))
+    
+    return(filtered_data)
+  })
+  
   # Render outcome table
   output$outcomeTable <- renderDT({
     outcome_data <- prepare_outcome_data()
@@ -1286,259 +1325,295 @@ server <- function(input, output, session) {
     
     div(
       h4("Summary Statistics", style = "color: #495057; margin-bottom: 15px;"),
-      div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;",
-          div(class = "outcome-stat", style = "background-color: white; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; text-align: center;",
-              div(style = "font-size: 1.5em; font-weight: bold; color: #495057;", total_processes),
-              div(style = "color: #6c757d; margin-top: 5px;", "Total Process IDs")
-          ),
-          div(class = "outcome-stat", style = "background-color: #d4edda; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; text-align: center;",
-              div(style = "font-size: 1.5em; font-weight: bold; color: #155724;", pass_count),
-              div(style = "color: #155724; margin-top: 5px;", "Passed")
-          ),
-          div(class = "outcome-stat", style = "background-color: #fff3cd; padding: 15px; border-radius: 8px; border: 1px solid #ffeaa7; text-align: center;",
-              div(style = "font-size: 1.5em; font-weight: bold; color: #856404;", partial_count),
-              div(style = "color: #856404; margin-top: 5px;", "Partial")
-          ),
-          div(class = "outcome-stat", style = "background-color: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; text-align: center;",
-              div(style = "font-size: 1.5em; font-weight: bold; color: #721c24;", fail_count),
-              div(style = "color: #721c24; margin-top: 5px;", "Failed")
-          ),
-          div(class = "outcome-stat", style = "background-color: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #bbdefb; text-align: center;",
-              div(style = "font-size: 1.5em; font-weight: bold; color: #1976d2;", paste0(pass_rate, "%")),
-              div(style = "color: #1976d2; margin-top: 5px;", "Pass Rate")
-          )
+  div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;",
+      div(class = "outcome-stat", style = "background-color: white; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; text-align: center;",
+          div(style = "font-size: 1.5em; font-weight: bold; color: #495057;", total_processes),
+          div(style = "color: #6c757d; margin-top: 5px;", "Total Process IDs")
       ),
-      style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px;"
-    )
-  })
-  
-  # Update the outcome summary when data changes
-  observe({
-    if (values$dataset_loaded) {
-      removeUI("#outcome_summary_container > div")
-      insertUI("#outcome_summary_container", "beforeEnd", 
-               uiOutput("outcome_summary"))
-    }
-  })
-  
-  # Prepare FASTA data (simplified - no filters, show all sequences, SORTED)
-  prepare_fasta_data <- reactive({
-    req(values$dataset_loaded, length(values$fasta_data$process_ids) > 0)
-    
-    # Filter FASTA sequences for target process IDs only
-    target_process_ids_clean <- trimws(as.character(values$current_process_ids))
-    filtered_sequences <- values$fasta_data$sequences %>%
-      filter(process_id %in% target_process_ids_clean)
-    
-    if (nrow(filtered_sequences) == 0) {
-      return("No FASTA sequences found for the selected Process IDs.")
-    }
-    
-    # Sequences are already sorted alphabetically by process_id in load_fasta_data()
-    
-    # Create FASTA format
-    fasta_lines <- c()
-    for (i in 1:nrow(filtered_sequences)) {
-      header <- filtered_sequences$header[i]
-      sequence <- filtered_sequences$sequence[i]
-      
-      # Add header
-      fasta_lines <- c(fasta_lines, paste0(">", header))
-      
-      # Add sequence (or empty line if NA/missing)
-      if (is.na(sequence) || sequence == "" || sequence == "NULL") {
-        fasta_lines <- c(fasta_lines, "")
-      } else {
-        fasta_lines <- c(fasta_lines, as.character(sequence))
-      }
-    }
-    
-    return(paste(fasta_lines, collapse = "\n"))
-  })
-  
-  # Render FASTA content
-  output$fastaContent <- renderText({
-    prepare_fasta_data()
-  })
-  
-  # Copy to clipboard functionality
-  observeEvent(input$copyFasta, {
-    fasta_content <- prepare_fasta_data()
-    session$sendCustomMessage("copyToClipboard", fasta_content)
-  })
-  
-  # Show clipboard success/error messages
-  observeEvent(input$clipboard_success, {
-    showNotification("FASTA content copied to clipboard!", type = "message")
-  })
-  
-  observeEvent(input$clipboard_error, {
-    showNotification("Failed to copy to clipboard. Please try manual selection.", type = "warning")
-  })
-  
-  # Render tables
-  output$summaryStatsTable <- renderDT({
-    req(values$dataset_loaded, nrow(values$summary_stats) > 0)
-    
-    numeric_cols <- which(sapply(values$summary_stats, is.numeric))
-    
-    datatable(
-      values$summary_stats,
-      options = list(
-        pageLength = 25,
-        scrollX = TRUE,
-        searchHighlight = TRUE,
-        dom = 'Bfrtip',
-        buttons = list('copy', 'csv', 'excel'),
-        columnDefs = list(
-          list(className = 'dt-right', targets = numeric_cols - 1),
-          list(
-            targets = numeric_cols - 1,
-            render = JS("
-              function(data, type, row) {
-                if (type === 'display' && data !== null && data !== undefined) {
-                  var num = Number(data);
-                  if (!isNaN(num)) {
-                    if (num % 1 === 0) {
-                      return num.toString();
-                    } else {
-                      return num.toFixed(2);
-                    }
-                  }
-                }
-                return data;
-              }
-            ")
-          )
-        )
+      div(class = "outcome-stat", style = "background-color: #d4edda; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; text-align: center;",
+          div(style = "font-size: 1.5em; font-weight: bold; color: #155724;", pass_count),
+          div(style = "color: #155724; margin-top: 5px;", "Passed")
       ),
-      filter = 'top',
-      rownames = FALSE,
-      class = 'display compact',
-      extensions = 'Buttons'
-    )
-  })
-  
-  output$barcodeValidationTable <- renderDT({
-    req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
-    
-    # Show ALL columns from the merged barcode validation data
-    display_data <- values$barcode_validation
-    
-    numeric_cols <- which(sapply(display_data, is.numeric))
-    
-    datatable(
-      display_data,
-      options = list(
-        pageLength = 25,
-        scrollX = TRUE,
-        searchHighlight = TRUE,
-        dom = 'Bfrtip',
-        buttons = list('copy', 'csv', 'excel'),
-        columnDefs = list(
-          list(className = 'dt-right', targets = numeric_cols - 1),
-          list(
-            targets = numeric_cols - 1,
-            render = JS("
-              function(data, type, row) {
-                if (type === 'display' && data !== null && data !== undefined) {
-                  var num = Number(data);
-                  if (!isNaN(num)) {
-                    if (num % 1 === 0) {
-                      return num.toString();
-                    } else {
-                      return num.toFixed(2);
-                    }
-                  }
-                }
-                return data;
-              }
-            ")
-          )
-        )
+      div(class = "outcome-stat", style = "background-color: #fff3cd; padding: 15px; border-radius: 8px; border: 1px solid #ffeaa7; text-align: center;",
+          div(style = "font-size: 1.5em; font-weight: bold; color: #856404;", partial_count),
+          div(style = "color: #856404; margin-top: 5px;", "Partial")
       ),
-      filter = 'top',
-      rownames = FALSE,
-      class = 'display compact',
-      extensions = 'Buttons'
-    )
-  })
-  
-  # Update column selectors for summary stats
-  observe({
-    if (values$dataset_loaded && nrow(values$summary_stats) > 0) {
-      numeric_cols <- names(values$summary_stats)[sapply(values$summary_stats, is.numeric)]
-      if (length(numeric_cols) > 0) {
-        updateSelectInput(session, "ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
-        updateSelectInput(session, "xcol", choices = numeric_cols, selected = numeric_cols[1])
-      }
-    }
-  })
-  
-  # Render summary stats plot
-  output$summaryStatsPlot <- renderPlotly({
-    req(input$xcol, input$ycol, values$dataset_loaded, nrow(values$summary_stats) > 0)
-    
-    plot_ly(
-      data = values$summary_stats,
-      x = ~.data[[input$xcol]],
-      y = ~.data[[input$ycol]],
-      type = 'scatter',
-      mode = 'markers',
-      marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
-    ) %>%
-      layout(
-        xaxis = list(title = input$xcol),
-        yaxis = list(title = input$ycol),
-        margin = list(t = 30)
+      div(class = "outcome-stat", style = "background-color: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; text-align: center;",
+          div(style = "font-size: 1.5em; font-weight: bold; color: #721c24;", fail_count),
+          div(style = "color: #721c24; margin-top: 5px;", "Failed")
+      ),
+      div(class = "outcome-stat", style = "background-color: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #bbdefb; text-align: center;",
+          div(style = "font-size: 1.5em; font-weight: bold; color: #1976d2;", paste0(pass_rate, "%")),
+          div(style = "color: #1976d2; margin-top: 5px;", "Pass Rate")
       )
-  })
+  ),
+style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px;"
+        )
+})
+
+# Update the outcome summary when data changes
+observe({
+  if (values$dataset_loaded) {
+    removeUI("#outcome_summary_container > div")
+    insertUI("#outcome_summary_container", "beforeEnd", 
+             uiOutput("outcome_summary"))
+  }
+})
+
+# Prepare FASTA data (simplified - no filters, show all sequences, SORTED)
+prepare_fasta_data <- reactive({
+  req(values$dataset_loaded, length(values$fasta_data$process_ids) > 0)
   
-  # Download handlers
-  output$downloadOutcomeTable <- downloadHandler(
-    filename = function() {
-      paste0("barcoding_outcome_", values$current_identifier, "_", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      outcome_data <- prepare_outcome_data()
-      if (nrow(outcome_data) > 0) {
-        export_data <- outcome_data %>% 
-          select(-overall_status_code) %>%
-          mutate(`Process ID` = gsub('<.*?>', '', `Process ID`))
-        write.csv(export_data, file, row.names = FALSE)
-      } else {
-        write.csv(data.frame("No data available"), file, row.names = FALSE)
-      }
-    }
-  )
+  # Filter FASTA sequences for target process IDs only
+  target_process_ids_clean <- trimws(as.character(values$current_process_ids))
+  filtered_sequences <- values$fasta_data$sequences %>%
+    filter(process_id %in% target_process_ids_clean)
   
-  output$downloadSummaryStats <- downloadHandler(
-    filename = function() {
-      paste0("summary_stats_", values$current_identifier, "_", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      write.csv(values$summary_stats, file, row.names = FALSE)
-    }
-  )
+  if (nrow(filtered_sequences) == 0) {
+    return("No FASTA sequences found for the selected Process IDs.")
+  }
   
-  output$downloadBarcodeValidation <- downloadHandler(
-    filename = function() {
-      paste0("barcode_validation_merged_", values$current_identifier, "_", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      write.csv(values$barcode_validation, file, row.names = FALSE)
-    }
-  )
+  # Sequences are already sorted alphabetically by process_id in load_fasta_data()
   
-  output$downloadFasta <- downloadHandler(
-    filename = function() {
-      paste0("barcodes_", values$current_identifier, "_", Sys.Date(), ".fasta")
-    },
-    content = function(file) {
-      fasta_content <- prepare_fasta_data()
-      writeLines(fasta_content, file)
+  # Create FASTA format
+  fasta_lines <- c()
+  for (i in 1:nrow(filtered_sequences)) {
+    header <- filtered_sequences$header[i]
+    sequence <- filtered_sequences$sequence[i]
+    
+    # Add header
+    fasta_lines <- c(fasta_lines, paste0(">", header))
+    
+    # Add sequence (or empty line if NA/missing)
+    if (is.na(sequence) || sequence == "" || sequence == "NULL") {
+      fasta_lines <- c(fasta_lines, "")
+    } else {
+      fasta_lines <- c(fasta_lines, as.character(sequence))
     }
+  }
+  
+  return(paste(fasta_lines, collapse = "\n"))
+})
+
+# Render FASTA content
+output$fastaContent <- renderText({
+  prepare_fasta_data()
+})
+
+# Copy to clipboard functionality
+observeEvent(input$copyFasta, {
+  fasta_content <- prepare_fasta_data()
+  session$sendCustomMessage("copyToClipboard", fasta_content)
+})
+
+# Show clipboard success/error messages
+observeEvent(input$clipboard_success, {
+  showNotification("FASTA content copied to clipboard!", type = "message")
+})
+
+observeEvent(input$clipboard_error, {
+  showNotification("Failed to copy to clipboard. Please try manual selection.", type = "warning")
+})
+
+# Render tables
+output$summaryStatsTable <- renderDT({
+  req(values$dataset_loaded, nrow(values$summary_stats) > 0)
+  
+  numeric_cols <- which(sapply(values$summary_stats, is.numeric))
+  
+  datatable(
+    values$summary_stats,
+    options = list(
+      pageLength = 25,
+      scrollX = TRUE,
+      searchHighlight = TRUE,
+      dom = 'Bfrtip',
+      buttons = list('copy', 'csv', 'excel'),
+      columnDefs = list(
+        list(className = 'dt-right', targets = numeric_cols - 1),
+        list(
+          targets = numeric_cols - 1,
+          render = JS("
+              function(data, type, row) {
+                if (type === 'display' && data !== null && data !== undefined) {
+                  var num = Number(data);
+                  if (!isNaN(num)) {
+                    if (num % 1 === 0) {
+                      return num.toString();
+                    } else {
+                      return num.toFixed(2);
+                    }
+                  }
+                }
+                return data;
+              }
+            ")
+        )
+      )
+    ),
+    filter = 'top',
+    rownames = FALSE,
+    class = 'display compact',
+    extensions = 'Buttons'
   )
+})
+
+# UPDATED: Render barcode validation table with filtered columns
+output$barcodeValidationTable <- renderDT({
+  req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
+  
+  # Use the filtered and reordered data
+  display_data <- prepare_filtered_barcode_validation()
+  
+  numeric_cols <- which(sapply(display_data, is.numeric))
+  
+  datatable(
+    display_data,
+    options = list(
+      pageLength = 25,
+      scrollX = TRUE,
+      searchHighlight = TRUE,
+      dom = 'Bfrtip',
+      buttons = list('copy', 'csv', 'excel'),
+      columnDefs = list(
+        list(className = 'dt-right', targets = numeric_cols - 1),
+        list(
+          targets = numeric_cols - 1,
+          render = JS("
+              function(data, type, row) {
+                if (type === 'display' && data !== null && data !== undefined) {
+                  var num = Number(data);
+                  if (!isNaN(num)) {
+                    if (num % 1 === 0) {
+                      return num.toString();
+                    } else {
+                      return num.toFixed(2);
+                    }
+                  }
+                }
+                return data;
+              }
+            ")
+        )
+      )
+    ),
+    filter = 'top',
+    rownames = FALSE,
+    class = 'display compact',
+    extensions = 'Buttons'
+  )
+})
+
+# Update column selectors for summary stats
+observe({
+  if (values$dataset_loaded && nrow(values$summary_stats) > 0) {
+    numeric_cols <- names(values$summary_stats)[sapply(values$summary_stats, is.numeric)]
+    if (length(numeric_cols) > 0) {
+      updateSelectInput(session, "ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
+      updateSelectInput(session, "xcol", choices = numeric_cols, selected = numeric_cols[1])
+    }
+  }
+})
+
+# NEW: Update column selectors for barcode validation
+observe({
+  if (values$dataset_loaded && nrow(values$barcode_validation) > 0) {
+    filtered_data <- prepare_filtered_barcode_validation()
+    numeric_cols <- names(filtered_data)[sapply(filtered_data, is.numeric)]
+    if (length(numeric_cols) > 0) {
+      updateSelectInput(session, "validation_ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
+      updateSelectInput(session, "validation_xcol", choices = numeric_cols, selected = numeric_cols[1])
+    }
+  }
+})
+
+# Render summary stats plot
+output$summaryStatsPlot <- renderPlotly({
+  req(input$xcol, input$ycol, values$dataset_loaded, nrow(values$summary_stats) > 0)
+  
+  plot_ly(
+    data = values$summary_stats,
+    x = ~.data[[input$xcol]],
+    y = ~.data[[input$ycol]],
+    type = 'scatter',
+    mode = 'markers',
+    marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
+  ) %>%
+    layout(
+      xaxis = list(title = input$xcol),
+      yaxis = list(title = input$ycol),
+      margin = list(t = 30)
+    )
+})
+
+# NEW: Render barcode validation plot
+output$barcodeValidationPlot <- renderPlotly({
+  req(input$validation_xcol, input$validation_ycol, values$dataset_loaded, nrow(values$barcode_validation) > 0)
+  
+  filtered_data <- prepare_filtered_barcode_validation()
+  
+  plot_ly(
+    data = filtered_data,
+    x = ~.data[[input$validation_xcol]],
+    y = ~.data[[input$validation_ycol]],
+    type = 'scatter',
+    mode = 'markers',
+    marker = list(size = 10, color = 'rgba(220, 53, 69, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
+  ) %>%
+    layout(
+      xaxis = list(title = input$validation_xcol),
+      yaxis = list(title = input$validation_ycol),
+      margin = list(t = 30)
+    )
+})
+
+# Download handlers
+output$downloadOutcomeTable <- downloadHandler(
+  filename = function() {
+    paste0("barcoding_outcome_", values$current_identifier, "_", Sys.Date(), ".csv")
+  },
+  content = function(file) {
+    outcome_data <- prepare_outcome_data()
+    if (nrow(outcome_data) > 0) {
+      export_data <- outcome_data %>% 
+        select(-overall_status_code) %>%
+        mutate(`Process ID` = gsub('<.*?>', '', `Process ID`))
+      write.csv(export_data, file, row.names = FALSE)
+    } else {
+      write.csv(data.frame("No data available"), file, row.names = FALSE)
+    }
+  }
+)
+
+output$downloadSummaryStats <- downloadHandler(
+  filename = function() {
+    paste0("summary_stats_", values$current_identifier, "_", Sys.Date(), ".csv")
+  },
+  content = function(file) {
+    write.csv(values$summary_stats, file, row.names = FALSE)
+  }
+)
+
+# UPDATED: Download handler for filtered barcode validation data
+output$downloadBarcodeValidation <- downloadHandler(
+  filename = function() {
+    paste0("barcode_validation_filtered_", values$current_identifier, "_", Sys.Date(), ".csv")
+  },
+  content = function(file) {
+    filtered_data <- prepare_filtered_barcode_validation()
+    write.csv(filtered_data, file, row.names = FALSE)
+  }
+)
+
+output$downloadFasta <- downloadHandler(
+  filename = function() {
+    paste0("barcodes_", values$current_identifier, "_", Sys.Date(), ".fasta")
+  },
+  content = function(file) {
+    fasta_content <- prepare_fasta_data()
+    writeLines(fasta_content, file)
+  }
+)
 }
 
 # Run the application

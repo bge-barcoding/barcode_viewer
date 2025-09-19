@@ -29,13 +29,7 @@ OR
 - 🟡 **Amber - Partial**: Either structural OR taxonomic validation successful (still considered overall fail).
 - 🔴 **Red - Fail**: Neither structural nor taxonomic validation successful.
 - **barcode_validator validation criteria**:
-  - **Structural**:
-	1. Filter to sequences with ambig_original == 0 (no ambiguous bases in original sequence (evidence of chimeric sequences))
-	2. From those, pick ones with stop_codons == 0 (no stop codons)
-	3. From those, pick ones with reading_frame in [1,2,3] (valid reading frames)
-	4. From those, pick ones with min(ambig_basecount) (fewest Ns in HMM-extracted barcode region (these Ns represent gaps in the barcode consensus sequence))
-	5. From those, pick ones with max(nuc_basecount) (longest sequence)
-	6. If multiple sequences remain, pick the one with highest cov_med (best median coverage as final tie-breaker)
+  - **Structural**: Filter to sequences with ambig_original == 0 (no ambiguous bases in original sequence (evidence of chimeric sequences)), stop_codons == 0 (no stop codons), reading_frame in [1,2,3] (valid reading frames), min(ambig_basecount) (fewest Ns in HMM-extracted barcode region (these Ns represent gaps in the barcode consensus sequence)), and with max(nuc_basecount) (longest sequence)
   - **Taxonomic**: Exact word match between family rank in BOLD (expected taxonomy) and taxonomic databases (observed taxonomy).
 - **BOLD systems integration**: Clickable Process ID links to corresponding BOLD database records.
 - **Summary statistics**: Pass rates and outcome distributions with visual summaries.
