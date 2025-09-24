@@ -15,6 +15,90 @@ BASE_DIRS <- list(
 
 BASE_DATA_DIR <- "./data"
 
+# Utility function to standardise column names across datasets
+standardise_column_names <- function(data, target_name, possible_names) {
+  if (nrow(data) == 0 || ncol(data) == 0) {
+    return(data)
+  }
+  
+  # Find which of the possible names exists in the data
+  matching_col <- intersect(possible_names, names(data))
+  
+  if (length(matching_col) > 0) {
+    # Rename the first matching column to the target name
+    names(data)[names(data) == matching_col[1]] <- target_name
+  }
+  
+  return(data)
+}
+
+# File reading with error handling
+safe_read_file <- function(file, reader_function, processor_function = NULL, file_type = "file") {
+  tryCatch({
+    # Read the file using the provided reader function
+    data <- reader_function(file)
+    
+    # Apply processing function if provided
+    if (!is.null(processor_function)) {
+      data <- processor_function(data)
+    }
+    
+    return(data)
+  }, error = function(e) {
+    message(paste("Error reading", file_type, basename(file), ":", e$message))
+    return(NULL)
+  })
+}
+
+# Specific reader functions
+read_csv_safe <- function(file) {
+  read.csv(file, stringsAsFactors = FALSE)
+}
+
+read_tsv_safe <- function(file) {
+  read.delim(file, stringsAsFactors = FALSE, sep = "\t", header = TRUE, quote = "")
+}
+
+# Utility function to filter data by process IDs with consistent cleaning
+filter_by_process_ids <- function(data, target_process_ids, id_column = "process_id") {
+  if (nrow(data) == 0 || length(target_process_ids) == 0) {
+    return(data)
+  }
+  
+  if (!id_column %in% names(data)) {
+    warning(paste("Column", id_column, "not found in data"))
+    return(data.frame())
+  }
+  
+  # Clean both the data column and target IDs consistently
+  target_process_ids_clean <- trimws(as.character(target_process_ids))
+  data_ids_clean <- trimws(as.character(data[[id_column]]))
+  
+  # Filter and return
+  filtered_data <- data[data_ids_clean %in% target_process_ids_clean, ]
+  return(filtered_data)
+}
+
+# Function to wrap sequence text every 100 characters for display
+wrap_sequence <- function(sequence, wrap_length = 100) {
+  if (is.na(sequence) || sequence == "" || sequence == "NULL") {
+    return("")
+  }
+  
+  seq_char <- as.character(sequence)
+  if (nchar(seq_char) <= wrap_length) {
+    return(seq_char)
+  }
+  
+  # Split sequence into chunks of wrap_length
+  chunks <- substring(seq_char, 
+                      seq(1, nchar(seq_char), wrap_length),
+                      seq(wrap_length, nchar(seq_char), wrap_length))
+  
+  # Join with regular line breaks for display
+  paste(chunks, collapse = "\n")
+}
+
 # Load and parse sample metadata
 load_sample_metadata <- function() {
   if (!dir.exists(BASE_DATA_DIR)) {
@@ -32,27 +116,20 @@ load_sample_metadata <- function() {
   
   # Try each CSV file to find one that looks like metadata
   for (csv_file in csv_files) {
-    tryCatch({
-      metadata <- read.csv(csv_file, stringsAsFactors = FALSE)
-      
-      # Check for different possible column name variations
-      has_sample_id <- any(c("sample_id", "Sample ID", "Sample.ID", "sampleid") %in% names(metadata))
-      has_process_id <- any(c("process_id", "Process ID", "Process.ID", "processid") %in% names(metadata))
-      
-      if (has_sample_id && has_process_id) {
-        # Standardize column names
-        names(metadata)[names(metadata) %in% c("Sample ID", "Sample.ID", "sampleid")] <- "sample_id"
-        names(metadata)[names(metadata) %in% c("Process ID", "Process.ID", "processid")] <- "process_id"
-        
-        message("Found metadata file: ", basename(csv_file))
-        message("Loaded ", nrow(metadata), " sample records")
-        return(metadata)
-      }
-    }, error = function(e) {
-      # Skip files that can't be read
-      message("Could not read ", basename(csv_file), ": ", e$message)
-      next
-    })
+    # Define processor function for metadata
+    process_metadata <- function(data) {
+      data <- standardise_column_names(data, "sample_id", c("sample_id", "Sample ID", "Sample.ID", "sampleid"))
+      data <- standardise_column_names(data, "process_id", c("process_id", "Process ID", "Process.ID", "processid"))
+      return(data)
+    }
+    
+    metadata <- safe_read_file(csv_file, read_csv_safe, process_metadata, "CSV")
+    
+    if (!is.null(metadata) && "sample_id" %in% names(metadata) && "process_id" %in% names(metadata)) {
+      message("Found metadata file: ", basename(csv_file))
+      message("Loaded ", nrow(metadata), " sample records")
+      return(metadata)
+    }
   }
   
   warning("No suitable metadata CSV file found in ", BASE_DATA_DIR)
@@ -95,51 +172,32 @@ get_available_process_ids <- function() {
   # Get process IDs from BGEE summary stats files
   if (dir.exists(BASE_DIRS$bgee_summary)) {
     csv_files <- list.files(BASE_DIRS$bgee_summary, pattern = "\\.csv$", full.names = TRUE)
+    
+    process_bgee_data <- function(data) {
+      standardise_column_names(data, "process_id", c("Process.ID", "Process ID", "process_id", "ID"))
+    }
+    
     for (file in csv_files) {
-      tryCatch({
-        data <- read.csv(file, stringsAsFactors = FALSE)
-        # Handle different possible column names
-        if ("Process.ID" %in% names(data)) {
-          process_ids <- data$Process.ID
-        } else if ("Process ID" %in% names(data)) {
-          process_ids <- data$`Process ID`
-        } else if ("process_id" %in% names(data)) {
-          process_ids <- data$process_id
-        } else if ("ID" %in% names(data)) {
-          process_ids <- data$ID
-        } else {
-          next
-        }
-        all_process_ids <- c(all_process_ids, process_ids)
-      }, error = function(e) {
-        message(paste("Error reading", file, ":", e$message))
-      })
+      data <- safe_read_file(file, read_csv_safe, process_bgee_data, "CSV")
+      if (!is.null(data) && "process_id" %in% names(data)) {
+        all_process_ids <- c(all_process_ids, data$process_id)
+      }
     }
   }
   
   # Also get process IDs from barcode validation files (both structval and taxval)
   if (dir.exists(BASE_DIRS$barcode_validation)) {
     tsv_files <- list.files(BASE_DIRS$barcode_validation, pattern = "\\.tsv$", full.names = TRUE)
+    
+    process_validation_data <- function(data) {
+      standardise_column_names(data, "process_id", c("ID", "group_id", "process_id", "Process.ID", "Process ID"))
+    }
+    
     for (file in tsv_files) {
-      tryCatch({
-        data <- read.delim(file, stringsAsFactors = FALSE, sep = "\t")
-        if ("ID" %in% names(data)) {
-          process_ids <- data$ID
-        } else if ("group_id" %in% names(data)) {
-          process_ids <- data$group_id
-        } else if ("process_id" %in% names(data)) {
-          process_ids <- data$process_id
-        } else if ("Process.ID" %in% names(data)) {
-          process_ids <- data$Process.ID
-        } else if ("Process ID" %in% names(data)) {
-          process_ids <- data$`Process ID`
-        } else {
-          next
-        }
-        all_process_ids <- c(all_process_ids, process_ids)
-      }, error = function(e) {
-        message(paste("Error reading", file, ":", e$message))
-      })
+      data <- safe_read_file(file, read_tsv_safe, process_validation_data, "TSV")
+      if (!is.null(data) && "process_id" %in% names(data)) {
+        all_process_ids <- c(all_process_ids, data$process_id)
+      }
     }
   }
   
@@ -238,7 +296,7 @@ load_fasta_data <- function() {
   return(list(sequences = all_sequences, process_ids = unique_process_ids))
 }
 
-# Check if a value is considered null/empty (similar to Python script)
+# Check if a value is considered null/empty
 is_null_value <- function(value) {
   null_values <- c("None", "none", "Null", "null", "NA", "na", "", "NULL")
   return(is.na(value) || trimws(as.character(value)) %in% null_values)
@@ -280,18 +338,14 @@ merge_validation_data <- function(structval_data, taxval_data, key_column = "ID"
   message(paste("Structval only:", paste(structval_only, collapse = ", ")))
   message(paste("Taxval only:", paste(taxval_only, collapse = ", ")))
   
-  # Standardize key column name in both datasets
-  if (key_column %in% names(structval_data)) {
-    names(structval_data)[names(structval_data) == key_column] <- "process_id"
-  }
-  if (key_column %in% names(taxval_data)) {
-    names(taxval_data)[names(taxval_data) == key_column] <- "process_id"
-  }
+  # Standardise key column name in both datasets
+  structval_data <- standardise_column_names(structval_data, "process_id", c(key_column))
+  taxval_data <- standardise_column_names(taxval_data, "process_id", c(key_column))
   
   # Perform outer merge
   merged_data <- full_join(taxval_data, structval_data, by = "process_id", suffix = c("_taxval", "_structval"))
   
-  # Initialize result dataframe
+  # Initialise result dataframe
   result_data <- data.frame(process_id = merged_data$process_id, stringsAsFactors = FALSE)
   
   # Process each column with merge logic
@@ -379,6 +433,39 @@ merge_validation_data <- function(structval_data, taxval_data, key_column = "ID"
   return(result_data)
 }
 
+# Function to clean and convert potentially numeric columns
+clean_numeric_columns <- function(data) {
+  if (nrow(data) == 0) return(data)
+  
+  null_values <- c("None", "none", "Null", "null", "NA", "na", "", "NULL")
+  
+  for (col_name in names(data)) {
+    col_data <- data[[col_name]]
+    
+    # Skip if already numeric
+    if (is.numeric(col_data)) next
+    
+    # Convert null representations to NA
+    col_data_clean <- ifelse(trimws(as.character(col_data)) %in% null_values | is.na(col_data), 
+                             NA, as.character(col_data))
+    
+    # Check if remaining non-NA values can be converted to numeric
+    non_na_values <- col_data_clean[!is.na(col_data_clean)]
+    if (length(non_na_values) > 0) {
+      # Try to convert to numeric
+      numeric_test <- suppressWarnings(as.numeric(non_na_values))
+      
+      # If all non-NA values successfully convert to numeric, convert the whole column
+      if (all(!is.na(numeric_test))) {
+        data[[col_name]] <- as.numeric(col_data_clean)
+        message(paste("Converted column", col_name, "from character to numeric"))
+      }
+    }
+  }
+  
+  return(data)
+}
+
 # Enhanced build_plate_index with validation
 build_plate_index <- function() {
   # Load metadata
@@ -454,7 +541,7 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
     summary_stats = data.frame(),
     barcode_validation = data.frame(),
     fasta_data = list(),
-    taxval_process_ids = character(), # NEW: Store taxval process IDs separately for validation logic
+    taxval_process_ids = character(),
     status = "",
     debug_info = list()
   )
@@ -470,14 +557,14 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
     bgee_ids = character(),
     validation_ids = character(),
     fasta_ids = character(),
-    taxval_ids = character() # NEW: Track which process IDs were in taxval
+    taxval_ids = character()
   )
   
   message(paste("Loading data for", identifier_type, ":", identifier))
   message(paste("Target Process IDs count:", length(target_process_ids)))
   message(paste("Sample target IDs:", paste(head(target_process_ids, 3), collapse = ", ")))
   
-  # Load BGEE summary stats (unchanged)
+  # Load BGEE summary stats with numeric conversion
   if (dir.exists(BASE_DIRS$bgee_summary)) {
     csv_files <- list.files(BASE_DIRS$bgee_summary, pattern = "\\.csv$", full.names = TRUE)
     all_summary_data <- data.frame()
@@ -488,16 +575,12 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
       tryCatch({
         data <- read.csv(file, stringsAsFactors = FALSE)
         
-        # The BGEE files use "ID" column based on your sample
-        if ("ID" %in% names(data)) {
-          names(data)[names(data) == "ID"] <- "process_id"
-        } else if ("Process.ID" %in% names(data)) {
-          names(data)[names(data) == "Process.ID"] <- "process_id"
-        } else if ("Process ID" %in% names(data)) {
-          names(data)[names(data) == "Process ID"] <- "process_id"
-        }
+        # The BGEE files use "ID" column based on sample
+        data <- standardise_column_names(data, "process_id", c("ID", "Process.ID", "Process ID", "process_id"))
         
         if ("process_id" %in% names(data)) {
+          # Apply numeric conversion BEFORE combining data
+          data <- clean_numeric_columns(data)
           all_summary_data <- rbind(all_summary_data, data)
         } else {
           message(paste("No ID/process_id column found in", basename(file), "- columns:", paste(names(data), collapse = ", ")))
@@ -509,12 +592,16 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
     
     # Filter for target process IDs and count actual records
     if (nrow(all_summary_data) > 0 && "process_id" %in% names(all_summary_data)) {
-      result$summary_stats <- all_summary_data[all_summary_data$process_id %in% target_process_ids, ]
+      result$summary_stats <- filter_by_process_ids(all_summary_data, target_process_ids)
       records_found$bgee_records <- nrow(result$summary_stats)
       
       if (records_found$bgee_records > 0) {
         process_ids_found$bgee_ids <- unique(result$summary_stats$process_id)
         message(paste("BGEE Summary: Found", records_found$bgee_records, "records for", length(process_ids_found$bgee_ids), "process IDs"))
+        
+        # Debug: Show which columns are now numeric
+        numeric_cols <- names(result$summary_stats)[sapply(result$summary_stats, is.numeric)]
+        message(paste("Numeric columns after conversion:", paste(numeric_cols, collapse = ", ")))
       } else {
         message("BGEE Summary: No records found for target process IDs")
       }
@@ -565,24 +652,20 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
     
     message(paste("Found", length(merged_files), "pre-merged TSV files"))
     
+    process_merged_data <- function(data) {
+      standardise_column_names(data, "process_id", c("process_id", "ID"))
+    }
+    
     for (file in merged_files) {
-      tryCatch({
-        data <- read.delim(file, stringsAsFactors = FALSE, sep = "\t", header = TRUE, quote = "")
-        if ("process_id" %in% names(data)) {
-          all_merged_data <- rbind(all_merged_data, data)
-        } else if ("ID" %in% names(data)) {
-          names(data)[names(data) == "ID"] <- "process_id"
-          all_merged_data <- rbind(all_merged_data, data)
-        }
-      }, error = function(e) {
-        message(paste("Error reading merged file", basename(file), ":", e$message))
-      })
+      data <- safe_read_file(file, read_tsv_safe, process_merged_data, "merged TSV")
+      if (!is.null(data) && "process_id" %in% names(data)) {
+        all_merged_data <- rbind(all_merged_data, data)
+      }
     }
     
     # Filter and sort merged data for target process IDs
     if (nrow(all_merged_data) > 0 && "process_id" %in% names(all_merged_data)) {
-      target_process_ids_clean <- trimws(as.character(target_process_ids))
-      result$barcode_validation <- all_merged_data[all_merged_data$process_id %in% target_process_ids_clean, ]
+      result$barcode_validation <- filter_by_process_ids(all_merged_data, target_process_ids)
       
       # Sort by process_id alphabetically
       if (nrow(result$barcode_validation) > 0) {
@@ -607,7 +690,8 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
   if (length(fasta_result$process_ids) > 0) {
     # Filter FASTA data for target process IDs
     target_process_ids_clean <- trimws(as.character(target_process_ids))
-    matching_fasta_ids <- fasta_result$process_ids[fasta_result$process_ids %in% target_process_ids_clean]
+    fasta_ids_clean <- trimws(as.character(fasta_result$process_ids))
+    matching_fasta_ids <- fasta_result$process_ids[fasta_ids_clean %in% target_process_ids_clean]
     records_found$fasta_sequences <- length(matching_fasta_ids)
     process_ids_found$fasta_ids <- unique(matching_fasta_ids)
     
@@ -653,9 +737,10 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
       result$status <- paste(result$status, "- WARNING: Missing data types:", paste(missing_types, collapse = ", "))
     }
     
-    # Add validation status summary for debugging
+    # Add validation status summary
     target_clean <- trimws(as.character(target_process_ids))
-    structural_pass_count <- length(target_clean[target_clean %in% result$taxval_process_ids])
+    taxval_clean <- trimws(as.character(result$taxval_process_ids))
+    structural_pass_count <- length(target_clean[target_clean %in% taxval_clean])
     taxonomic_pass_count <- length(process_ids_found$fasta_ids[process_ids_found$fasta_ids %in% target_clean])
     
     message(paste("VALIDATION SUMMARY:"))
@@ -804,7 +889,7 @@ ui <- fluidPage(
                                  style = "width: 0%; background-color: #007bff; transition: width 0.3s ease;")
                          ),
                          div(id = "progress_text", style = "text-align: center; margin-top: 10px; font-weight: 500; color: #495057;",
-                             "Initializing...")
+                             "Initialising...")
                      )
                  ),
                  div(id = "plate_status", class = "status-message")
@@ -815,7 +900,8 @@ ui <- fluidPage(
              tags$ul(
                tags$li(strong("BGEE Summary Statistics:"), " Combined statistics from the Barcode Gene Extractor & Evaluator (BGEE) pipeline."),
                tags$li(strong("Barcode Validation:"), " Merged structural and taxonomic validation results from the BGEE pipeline."),
-               tags$li(strong("Barcodes:"), " FASTA sequences for validated barcodes.")
+               tags$li(strong("Barcodes:"), " FASTA sequences for validated barcodes."),
+               tags$li(strong("Visualise Data:"), " Interactive plots for exploring the loaded data.")
              ),
              
              br(),
@@ -883,7 +969,7 @@ ui <- fluidPage(
              )
     ),
     
-    # BGEE Summary Statistics Tab
+    # BGEE Summary Statistics Tab (without scatter plot)
     tabPanel("BGEE Summary Statistics",
              br(),
              conditionalPanel(
@@ -901,19 +987,11 @@ ui <- fluidPage(
                ),
                
                downloadButton("downloadSummaryStats", "Download Filtered Summary Stats", class = "download-btn btn-primary"),
-               DTOutput("summaryStatsTable"),
-               
-               hr(),
-               h4("Interactive Scatter Plot"),
-               fluidRow(
-                 column(6, selectInput("ycol", "Y Axis:", choices = NULL)),
-                 column(6, selectInput("xcol", "X Axis:", choices = NULL))
-               ),
-               plotlyOutput("summaryStatsPlot", height = "500px")
+               DTOutput("summaryStatsTable")
              )
     ),
     
-    # Barcode Validation Tab (merged data) - WITH INTERACTIVE PLOT
+    # Barcode Validation Tab (without scatter plot)
     tabPanel("Barcode Validation",
              br(),
              conditionalPanel(
@@ -931,19 +1009,68 @@ ui <- fluidPage(
                ),
                
                downloadButton("downloadBarcodeValidation", "Download Filtered Barcode Validation Data", class = "download-btn btn-primary"),
-               DTOutput("barcodeValidationTable"),
-               
-               hr(),
-               h4("Interactive Scatter Plot"),
-               fluidRow(
-                 column(6, selectInput("validation_ycol", "Y Axis:", choices = NULL)),
-                 column(6, selectInput("validation_xcol", "X Axis:", choices = NULL))
-               ),
-               plotlyOutput("barcodeValidationPlot", height = "500px")
+               DTOutput("barcodeValidationTable")
              )
     ),
     
-    # Barcodes Tab (simplified - no filters)
+    # Visualise Data Tab - UPDATED SECTION
+    tabPanel("Visualise Data",
+             br(),
+             conditionalPanel(
+               condition = "output.dataset_loaded == false",
+               div(p("Please select and load a plate or project from the 'Search Results' tab first."),
+                   style = "color: #6c757d; font-style: italic;")
+             ),
+             conditionalPanel(
+               condition = "output.dataset_loaded == true",
+               
+               div(
+                 h4("Interactive Data Visualisation"),
+                 p("Explore the loaded data with interactive plots. Choose different variables to create custom visualisations."),
+                 style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
+               ),
+               
+               # BGEE Summary Statistics Scatter Plot - UPDATED ORDER
+               h4("BGEE Summary Statistics - Scatter Plot"),
+               conditionalPanel(
+                 condition = "output.has_summary_data == true",
+                 fluidRow(
+                   column(6, selectInput("xcol", "X Axis:", choices = NULL)),  # X Axis now comes first
+                   column(6, selectInput("ycol", "Y Axis:", choices = NULL))   # Y Axis now comes second
+                 ),
+                 plotlyOutput("summaryStatsPlot", height = "500px")
+               ),
+               conditionalPanel(
+                 condition = "output.has_summary_data == false",
+                 div(p("No BGEE Summary Statistics data available for visualisation."),
+                     style = "color: #6c757d; font-style: italic; margin: 20px 0;")
+               ),
+               
+               hr(),
+               
+               # Barcode Validation Bar Chart
+               h4("Barcode Validation - Bar Chart"),
+               conditionalPanel(
+                 condition = "output.has_validation_data == true",
+                 fluidRow(
+                   column(6, selectInput("validation_xcol", "X Axis:", choices = NULL)),
+                   column(6, selectInput("validation_ycol", "Y Axis (Numeric):", choices = NULL))
+                 ),
+                 div(
+                   p("Note: The chart is scrollable if there are many entries. Use your mouse wheel or drag to navigate."),
+                   style = "color: #6c757d; font-size: 0.9em; margin-bottom: 15px;"
+                 ),
+                 plotlyOutput("barcodeValidationPlot", height = "500px")
+               ),
+               conditionalPanel(
+                 condition = "output.has_validation_data == false",
+                 div(p("No Barcode Validation data available for visualisation."),
+                     style = "color: #6c757d; font-style: italic; margin: 20px 0;")
+               )
+             )
+    ),
+    
+    # Barcodes Tab
     tabPanel("Barcodes",
              br(),
              conditionalPanel(
@@ -956,7 +1083,8 @@ ui <- fluidPage(
                
                div(
                  h4("Barcode Sequences (FASTA Format)"),
-                 p("View and download barcode consensus sequences in FASTA format. Sequences are derived from the FASTA files in the barcodes directory, sorted alphabetically by Process ID."),
+                 p("View and download barcode consensus sequences that PASSED validation, in FASTA format."),
+                 p("If you are interested in FAILED barcode consensus sequences, these can be retrieved from the 'sequence' column of the Barcode Validation tab."),
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
@@ -987,7 +1115,7 @@ server <- function(input, output, session) {
     summary_stats = data.frame(),
     barcode_validation = data.frame(),
     fasta_data = list(),
-    taxval_process_ids = character(), # NEW: Store which process IDs passed structural validation
+    taxval_process_ids = character(), # Store which process IDs passed structural validation
     dataset_loaded = FALSE,
     plate_index = data.frame(),
     current_identifier = "",
@@ -995,7 +1123,7 @@ server <- function(input, output, session) {
     current_process_ids = character()
   )
   
-  # Initialize plate index
+  # Initialise plate index
   observe({
     values$plate_index <- build_plate_index()
     
@@ -1023,11 +1151,21 @@ server <- function(input, output, session) {
     }
   })
   
-  # Create output for conditionalPanel
+  # Create outputs for conditionalPanels
   output$dataset_loaded <- reactive({
     values$dataset_loaded
   })
   outputOptions(output, "dataset_loaded", suspendWhenHidden = FALSE)
+  
+  output$has_summary_data <- reactive({
+    values$dataset_loaded && nrow(values$summary_stats) > 0
+  })
+  outputOptions(output, "has_summary_data", suspendWhenHidden = FALSE)
+  
+  output$has_validation_data <- reactive({
+    values$dataset_loaded && nrow(values$barcode_validation) > 0
+  })
+  outputOptions(output, "has_validation_data", suspendWhenHidden = FALSE)
   
   # Load data when button is clicked
   observeEvent(input$load_data, {
@@ -1126,7 +1264,7 @@ server <- function(input, output, session) {
         values$summary_stats <- result$summary_stats
         values$barcode_validation <- result$barcode_validation
         values$fasta_data <- result$fasta_data
-        values$taxval_process_ids <- result$taxval_process_ids # CRITICAL: Store taxval Process IDs
+        values$taxval_process_ids <- result$taxval_process_ids
         values$current_identifier <- identifier
         values$current_identifier_type <- identifier_type
         values$current_process_ids <- target_process_ids
@@ -1160,7 +1298,7 @@ server <- function(input, output, session) {
     shinyjs::enable("load_data")
   })
   
-  # CORRECTED: Prepare outcome data with FIXED validation logic
+  # Prepare outcome data with validation logic
   prepare_outcome_data <- reactive({
     req(values$dataset_loaded)
     
@@ -1171,10 +1309,8 @@ server <- function(input, output, session) {
       return(data.frame())
     }
     
-    # CORRECTED LOGIC:
-    # Structural validation PASS = Process ID exists in taxval data (values$taxval_process_ids)
+    # Structural validation PASS = Process ID exists in taxval data
     # Taxonomic validation PASS = Process ID exists in FASTA data
-    
     structural_pass_ids <- values$taxval_process_ids
     taxonomic_pass_ids <- if (length(values$fasta_data$process_ids) > 0) {
       unique(values$fasta_data$process_ids)
@@ -1186,12 +1322,6 @@ server <- function(input, output, session) {
     all_process_ids_clean <- trimws(as.character(all_process_ids))
     structural_pass_ids_clean <- trimws(as.character(structural_pass_ids))
     taxonomic_pass_ids_clean <- trimws(as.character(taxonomic_pass_ids))
-    
-    # Debug logging
-    message("OUTCOME DATA PREPARATION:")
-    message(paste("- Total target Process IDs:", length(all_process_ids_clean)))
-    message(paste("- Structural pass IDs available:", length(structural_pass_ids_clean)))
-    message(paste("- Taxonomic pass IDs available:", length(taxonomic_pass_ids_clean)))
     
     # Create outcome data for all process IDs
     outcome_data <- data.frame(
@@ -1205,7 +1335,7 @@ server <- function(input, output, session) {
         overall_status = case_when(
           structural_pass & taxonomic_pass ~ "PASS",
           structural_pass & !taxonomic_pass ~ "PARTIAL",
-          TRUE ~ "FAIL"  # This should now correctly catch cases where structural_pass = FALSE
+          TRUE ~ "FAIL"
         ),
         
         # Create display values
@@ -1223,25 +1353,19 @@ server <- function(input, output, session) {
         overall_status_code = overall_status
       )
     
-    # Debug the outcome counts
-    pass_count <- sum(outcome_data$overall_status_code == "PASS", na.rm = TRUE)
-    partial_count <- sum(outcome_data$overall_status_code == "PARTIAL", na.rm = TRUE)
-    fail_count <- sum(outcome_data$overall_status_code == "FAIL", na.rm = TRUE)
-    
-    message(paste("OUTCOME COUNTS: PASS =", pass_count, ", PARTIAL =", partial_count, ", FAIL =", fail_count))
-    
     return(outcome_data)
   })
   
-  # Function to filter and reorder barcode validation columns
+  # Function to filter and reorder barcode validation columns with sequence wrapping
   prepare_filtered_barcode_validation <- reactive({
     req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
     
-    # Define the desired column order
+    # Define the desired column order - sequence after reading_frame
     desired_columns <- c("Filename", "process_id", "fasta_header", "mge_params", 
                          "marker_code", "nuc_basecount", "nuc_full_basecount", 
-                         "sequence", "ambig_original", "ambig_basecount", 
+                         "ambig_original", "ambig_basecount", 
                          "ambig_full_basecount", "stop_codons", "reading_frame",
+                         "sequence", # MOVED HERE - after reading_frame
                          "identification", "species", "identification_method", 
                          "identification_rank", "obs_taxon", "BOLD_submissions", "error")
     
@@ -1260,7 +1384,11 @@ server <- function(input, output, session) {
     filtered_data <- values$barcode_validation %>%
       select(all_of(columns_to_select))
     
-    message(paste("Filtered barcode validation data to", ncol(filtered_data), "columns out of", ncol(values$barcode_validation), "available"))
+    # Apply sequence wrapping to the 'sequence' column if it exists
+    if ("sequence" %in% names(filtered_data)) {
+      filtered_data <- filtered_data %>%
+        mutate(sequence = sapply(sequence, wrap_sequence, USE.NAMES = FALSE))
+    }
     
     return(filtered_data)
   })
@@ -1283,13 +1411,17 @@ server <- function(input, output, session) {
         scrollX = TRUE,
         searchHighlight = TRUE,
         dom = 'Bfrtip',
-        buttons = list('copy', 'csv', 'excel'),
+        buttons = list(
+          list(extend = 'copy', exportOptions = list(modifier = list(search = 'applied'))),
+          list(extend = 'csv', exportOptions = list(modifier = list(search = 'applied'))),
+          list(extend = 'excel', exportOptions = list(modifier = list(search = 'applied')))
+        ),
         columnDefs = list(
-          list(className = 'dt-center', targets = c(1, 2, 3))  # Center validation columns
+          list(className = 'dt-center', targets = c(1, 2, 3))
         ),
         rowCallback = JS(
           "function(row, data, index) {",
-          "  var status = data[3];", # Overall Status column
+          "  var status = data[3];",
           "  if (status === 'PASS') {",
           "    $(row).css('background-color', '#d4edda');",
           "  } else if (status === 'PARTIAL') {",
@@ -1307,7 +1439,7 @@ server <- function(input, output, session) {
     )
   })
   
-  # Render outcome summary (do NOT count PARTIAL as PASS)
+  # Render outcome summary
   output$outcome_summary <- renderUI({
     outcome_data <- prepare_outcome_data()
     
@@ -1325,295 +1457,375 @@ server <- function(input, output, session) {
     
     div(
       h4("Summary Statistics", style = "color: #495057; margin-bottom: 15px;"),
-  div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;",
-      div(class = "outcome-stat", style = "background-color: white; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; text-align: center;",
-          div(style = "font-size: 1.5em; font-weight: bold; color: #495057;", total_processes),
-          div(style = "color: #6c757d; margin-top: 5px;", "Total Process IDs")
+      div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;",
+          div(class = "outcome-stat", style = "background-color: white; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #495057;", total_processes),
+              div(style = "color: #6c757d; margin-top: 5px;", "Total Process IDs")
+          ),
+          div(class = "outcome-stat", style = "background-color: #d4edda; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #155724;", pass_count),
+              div(style = "color: #155724; margin-top: 5px;", "Passed")
+          ),
+          div(class = "outcome-stat", style = "background-color: #fff3cd; padding: 15px; border-radius: 8px; border: 1px solid #ffeaa7; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #856404;", partial_count),
+              div(style = "color: #856404; margin-top: 5px;", "Partial")
+          ),
+          div(class = "outcome-stat", style = "background-color: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #721c24;", fail_count),
+              div(style = "color: #721c24; margin-top: 5px;", "Failed")
+          ),
+          div(class = "outcome-stat", style = "background-color: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #bbdefb; text-align: center;",
+              div(style = "font-size: 1.5em; font-weight: bold; color: #1976d2;", paste0(pass_rate, "%")),
+              div(style = "color: #1976d2; margin-top: 5px;", "Pass Rate")
+          )
       ),
-      div(class = "outcome-stat", style = "background-color: #d4edda; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; text-align: center;",
-          div(style = "font-size: 1.5em; font-weight: bold; color: #155724;", pass_count),
-          div(style = "color: #155724; margin-top: 5px;", "Passed")
-      ),
-      div(class = "outcome-stat", style = "background-color: #fff3cd; padding: 15px; border-radius: 8px; border: 1px solid #ffeaa7; text-align: center;",
-          div(style = "font-size: 1.5em; font-weight: bold; color: #856404;", partial_count),
-          div(style = "color: #856404; margin-top: 5px;", "Partial")
-      ),
-      div(class = "outcome-stat", style = "background-color: #f8d7da; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; text-align: center;",
-          div(style = "font-size: 1.5em; font-weight: bold; color: #721c24;", fail_count),
-          div(style = "color: #721c24; margin-top: 5px;", "Failed")
-      ),
-      div(class = "outcome-stat", style = "background-color: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #bbdefb; text-align: center;",
-          div(style = "font-size: 1.5em; font-weight: bold; color: #1976d2;", paste0(pass_rate, "%")),
-          div(style = "color: #1976d2; margin-top: 5px;", "Pass Rate")
-      )
-  ),
-style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px;"
-        )
-})
-
-# Update the outcome summary when data changes
-observe({
-  if (values$dataset_loaded) {
-    removeUI("#outcome_summary_container > div")
-    insertUI("#outcome_summary_container", "beforeEnd", 
-             uiOutput("outcome_summary"))
-  }
-})
-
-# Prepare FASTA data (simplified - no filters, show all sequences, SORTED)
-prepare_fasta_data <- reactive({
-  req(values$dataset_loaded, length(values$fasta_data$process_ids) > 0)
-  
-  # Filter FASTA sequences for target process IDs only
-  target_process_ids_clean <- trimws(as.character(values$current_process_ids))
-  filtered_sequences <- values$fasta_data$sequences %>%
-    filter(process_id %in% target_process_ids_clean)
-  
-  if (nrow(filtered_sequences) == 0) {
-    return("No FASTA sequences found for the selected Process IDs.")
-  }
-  
-  # Sequences are already sorted alphabetically by process_id in load_fasta_data()
-  
-  # Create FASTA format
-  fasta_lines <- c()
-  for (i in 1:nrow(filtered_sequences)) {
-    header <- filtered_sequences$header[i]
-    sequence <- filtered_sequences$sequence[i]
-    
-    # Add header
-    fasta_lines <- c(fasta_lines, paste0(">", header))
-    
-    # Add sequence (or empty line if NA/missing)
-    if (is.na(sequence) || sequence == "" || sequence == "NULL") {
-      fasta_lines <- c(fasta_lines, "")
-    } else {
-      fasta_lines <- c(fasta_lines, as.character(sequence))
-    }
-  }
-  
-  return(paste(fasta_lines, collapse = "\n"))
-})
-
-# Render FASTA content
-output$fastaContent <- renderText({
-  prepare_fasta_data()
-})
-
-# Copy to clipboard functionality
-observeEvent(input$copyFasta, {
-  fasta_content <- prepare_fasta_data()
-  session$sendCustomMessage("copyToClipboard", fasta_content)
-})
-
-# Show clipboard success/error messages
-observeEvent(input$clipboard_success, {
-  showNotification("FASTA content copied to clipboard!", type = "message")
-})
-
-observeEvent(input$clipboard_error, {
-  showNotification("Failed to copy to clipboard. Please try manual selection.", type = "warning")
-})
-
-# Render tables
-output$summaryStatsTable <- renderDT({
-  req(values$dataset_loaded, nrow(values$summary_stats) > 0)
-  
-  numeric_cols <- which(sapply(values$summary_stats, is.numeric))
-  
-  datatable(
-    values$summary_stats,
-    options = list(
-      pageLength = 25,
-      scrollX = TRUE,
-      searchHighlight = TRUE,
-      dom = 'Bfrtip',
-      buttons = list('copy', 'csv', 'excel'),
-      columnDefs = list(
-        list(className = 'dt-right', targets = numeric_cols - 1),
-        list(
-          targets = numeric_cols - 1,
-          render = JS("
-              function(data, type, row) {
-                if (type === 'display' && data !== null && data !== undefined) {
-                  var num = Number(data);
-                  if (!isNaN(num)) {
-                    if (num % 1 === 0) {
-                      return num.toString();
-                    } else {
-                      return num.toFixed(2);
-                    }
-                  }
-                }
-                return data;
-              }
-            ")
-        )
-      )
-    ),
-    filter = 'top',
-    rownames = FALSE,
-    class = 'display compact',
-    extensions = 'Buttons'
-  )
-})
-
-# UPDATED: Render barcode validation table with filtered columns
-output$barcodeValidationTable <- renderDT({
-  req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
-  
-  # Use the filtered and reordered data
-  display_data <- prepare_filtered_barcode_validation()
-  
-  numeric_cols <- which(sapply(display_data, is.numeric))
-  
-  datatable(
-    display_data,
-    options = list(
-      pageLength = 25,
-      scrollX = TRUE,
-      searchHighlight = TRUE,
-      dom = 'Bfrtip',
-      buttons = list('copy', 'csv', 'excel'),
-      columnDefs = list(
-        list(className = 'dt-right', targets = numeric_cols - 1),
-        list(
-          targets = numeric_cols - 1,
-          render = JS("
-              function(data, type, row) {
-                if (type === 'display' && data !== null && data !== undefined) {
-                  var num = Number(data);
-                  if (!isNaN(num)) {
-                    if (num % 1 === 0) {
-                      return num.toString();
-                    } else {
-                      return num.toFixed(2);
-                    }
-                  }
-                }
-                return data;
-              }
-            ")
-        )
-      )
-    ),
-    filter = 'top',
-    rownames = FALSE,
-    class = 'display compact',
-    extensions = 'Buttons'
-  )
-})
-
-# Update column selectors for summary stats
-observe({
-  if (values$dataset_loaded && nrow(values$summary_stats) > 0) {
-    numeric_cols <- names(values$summary_stats)[sapply(values$summary_stats, is.numeric)]
-    if (length(numeric_cols) > 0) {
-      updateSelectInput(session, "ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
-      updateSelectInput(session, "xcol", choices = numeric_cols, selected = numeric_cols[1])
-    }
-  }
-})
-
-# NEW: Update column selectors for barcode validation
-observe({
-  if (values$dataset_loaded && nrow(values$barcode_validation) > 0) {
-    filtered_data <- prepare_filtered_barcode_validation()
-    numeric_cols <- names(filtered_data)[sapply(filtered_data, is.numeric)]
-    if (length(numeric_cols) > 0) {
-      updateSelectInput(session, "validation_ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
-      updateSelectInput(session, "validation_xcol", choices = numeric_cols, selected = numeric_cols[1])
-    }
-  }
-})
-
-# Render summary stats plot
-output$summaryStatsPlot <- renderPlotly({
-  req(input$xcol, input$ycol, values$dataset_loaded, nrow(values$summary_stats) > 0)
-  
-  plot_ly(
-    data = values$summary_stats,
-    x = ~.data[[input$xcol]],
-    y = ~.data[[input$ycol]],
-    type = 'scatter',
-    mode = 'markers',
-    marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
-  ) %>%
-    layout(
-      xaxis = list(title = input$xcol),
-      yaxis = list(title = input$ycol),
-      margin = list(t = 30)
+      style = "background-color: #f8f9fa; padding: 20px; border-radius: 8px;"
     )
-})
-
-# NEW: Render barcode validation plot
-output$barcodeValidationPlot <- renderPlotly({
-  req(input$validation_xcol, input$validation_ycol, values$dataset_loaded, nrow(values$barcode_validation) > 0)
+  })
   
-  filtered_data <- prepare_filtered_barcode_validation()
-  
-  plot_ly(
-    data = filtered_data,
-    x = ~.data[[input$validation_xcol]],
-    y = ~.data[[input$validation_ycol]],
-    type = 'scatter',
-    mode = 'markers',
-    marker = list(size = 10, color = 'rgba(220, 53, 69, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)'))
-  ) %>%
-    layout(
-      xaxis = list(title = input$validation_xcol),
-      yaxis = list(title = input$validation_ycol),
-      margin = list(t = 30)
-    )
-})
-
-# Download handlers
-output$downloadOutcomeTable <- downloadHandler(
-  filename = function() {
-    paste0("barcoding_outcome_", values$current_identifier, "_", Sys.Date(), ".csv")
-  },
-  content = function(file) {
-    outcome_data <- prepare_outcome_data()
-    if (nrow(outcome_data) > 0) {
-      export_data <- outcome_data %>% 
-        select(-overall_status_code) %>%
-        mutate(`Process ID` = gsub('<.*?>', '', `Process ID`))
-      write.csv(export_data, file, row.names = FALSE)
-    } else {
-      write.csv(data.frame("No data available"), file, row.names = FALSE)
+  # Update the outcome summary when data changes
+  observe({
+    if (values$dataset_loaded) {
+      removeUI("#outcome_summary_container > div")
+      insertUI("#outcome_summary_container", "beforeEnd", 
+               uiOutput("outcome_summary"))
     }
-  }
-)
-
-output$downloadSummaryStats <- downloadHandler(
-  filename = function() {
-    paste0("summary_stats_", values$current_identifier, "_", Sys.Date(), ".csv")
-  },
-  content = function(file) {
-    write.csv(values$summary_stats, file, row.names = FALSE)
-  }
-)
-
-# UPDATED: Download handler for filtered barcode validation data
-output$downloadBarcodeValidation <- downloadHandler(
-  filename = function() {
-    paste0("barcode_validation_filtered_", values$current_identifier, "_", Sys.Date(), ".csv")
-  },
-  content = function(file) {
-    filtered_data <- prepare_filtered_barcode_validation()
-    write.csv(filtered_data, file, row.names = FALSE)
-  }
-)
-
-output$downloadFasta <- downloadHandler(
-  filename = function() {
-    paste0("barcodes_", values$current_identifier, "_", Sys.Date(), ".fasta")
-  },
-  content = function(file) {
+  })
+  
+  # Prepare FASTA data
+  prepare_fasta_data <- reactive({
+    req(values$dataset_loaded, length(values$fasta_data$process_ids) > 0)
+    
+    # Filter FASTA sequences for target process IDs only
+    filtered_sequences <- filter_by_process_ids(values$fasta_data$sequences, values$current_process_ids)
+    
+    if (nrow(filtered_sequences) == 0) {
+      return("No FASTA sequences found for the selected Process IDs.")
+    }
+    
+    # Create FASTA format
+    fasta_lines <- c()
+    for (i in 1:nrow(filtered_sequences)) {
+      header <- filtered_sequences$header[i]
+      sequence <- filtered_sequences$sequence[i]
+      
+      # Add header
+      fasta_lines <- c(fasta_lines, paste0(">", header))
+      
+      # Add sequence (or empty line if NA/missing)
+      if (is.na(sequence) || sequence == "" || sequence == "NULL") {
+        fasta_lines <- c(fasta_lines, "")
+      } else {
+        fasta_lines <- c(fasta_lines, as.character(sequence))
+      }
+    }
+    
+    return(paste(fasta_lines, collapse = "\n"))
+  })
+  
+  # Render FASTA content
+  output$fastaContent <- renderText({
+    prepare_fasta_data()
+  })
+  
+  # Copy to clipboard functionality
+  observeEvent(input$copyFasta, {
     fasta_content <- prepare_fasta_data()
-    writeLines(fasta_content, file)
-  }
-)
+    session$sendCustomMessage("copyToClipboard", fasta_content)
+  })
+  
+  # Show clipboard success/error messages
+  observeEvent(input$clipboard_success, {
+    showNotification("FASTA content copied to clipboard!", type = "message")
+  })
+  
+  observeEvent(input$clipboard_error, {
+    showNotification("Failed to copy to clipboard. Please try manual selection.", type = "warning")
+  })
+  
+  # Render tables with updated export options
+  output$summaryStatsTable <- renderDT({
+    req(values$dataset_loaded, nrow(values$summary_stats) > 0)
+    
+    numeric_cols <- which(sapply(values$summary_stats, is.numeric))
+    
+    datatable(
+      values$summary_stats,
+      options = list(
+        pageLength = 25,
+        scrollX = TRUE,
+        searchHighlight = TRUE,
+        dom = 'Bfrtip',
+        buttons = list(
+          list(extend = 'copy', exportOptions = list(modifier = list(search = 'applied'))),
+          list(extend = 'csv', exportOptions = list(modifier = list(search = 'applied'))),
+          list(extend = 'excel', exportOptions = list(modifier = list(search = 'applied')))
+        ),
+        columnDefs = list(
+          list(className = 'dt-right', targets = numeric_cols - 1),
+          list(
+            targets = numeric_cols - 1,
+            render = JS("
+                function(data, type, row) {
+                  if (type === 'display' && data !== null && data !== undefined) {
+                    var num = Number(data);
+                    if (!isNaN(num)) {
+                      if (num % 1 === 0) {
+                        return num.toString();
+                      } else {
+                        return num.toFixed(2);
+                      }
+                    }
+                  }
+                  return data;
+                }
+              ")
+          )
+        )
+      ),
+      filter = 'top',
+      rownames = FALSE,
+      class = 'display compact',
+      extensions = 'Buttons'
+    )
+  })
+  
+  # Render barcode validation table with filtered columns and sequence wrapping
+  output$barcodeValidationTable <- renderDT({
+    req(values$dataset_loaded, nrow(values$barcode_validation) > 0)
+    
+    # Use the filtered and reordered data with sequence wrapping
+    display_data <- prepare_filtered_barcode_validation()
+    
+    numeric_cols <- which(sapply(display_data, is.numeric))
+    
+    datatable(
+      display_data,
+      options = list(
+        pageLength = 25,
+        scrollX = TRUE,
+        searchHighlight = TRUE,
+        dom = 'Bfrtip',
+        buttons = list(
+          list(extend = 'copy', exportOptions = list(modifier = list(search = 'applied'))),
+          list(extend = 'csv', exportOptions = list(modifier = list(search = 'applied'))),
+          list(extend = 'excel', exportOptions = list(modifier = list(search = 'applied')))
+        ),
+        columnDefs = list(
+          list(className = 'dt-right', targets = numeric_cols - 1),
+          list(
+            targets = numeric_cols - 1,
+            render = JS("
+                function(data, type, row) {
+                  if (type === 'display' && data !== null && data !== undefined) {
+                    var num = Number(data);
+                    if (!isNaN(num)) {
+                      if (num % 1 === 0) {
+                        return num.toString();
+                      } else {
+                        return num.toFixed(2);
+                      }
+                    }
+                  }
+                  return data;
+                }
+              ")
+          )
+        )
+      ),
+      filter = 'top',
+      rownames = FALSE,
+      class = 'display compact',
+      extensions = 'Buttons'
+    )
+  })
+  
+  # UPDATED: Column selectors for summary stats - now includes ALL numeric columns
+  observe({
+    if (values$dataset_loaded && nrow(values$summary_stats) > 0) {
+      numeric_cols <- names(values$summary_stats)[sapply(values$summary_stats, is.numeric)]
+      
+      # Debug: Print available columns to console
+      message("DEBUG: Available columns in summary_stats:")
+      message(paste("All columns:", paste(names(values$summary_stats), collapse = ", ")))
+      message(paste("Numeric columns:", paste(numeric_cols, collapse = ", ")))
+      
+      if (length(numeric_cols) > 0) {
+        updateSelectInput(session, "xcol", choices = numeric_cols, selected = numeric_cols[1])
+        updateSelectInput(session, "ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
+      }
+    }
+  })
+  
+  # Update column selectors for barcode validation
+  observe({
+    if (values$dataset_loaded && nrow(values$barcode_validation) > 0) {
+      filtered_data <- prepare_filtered_barcode_validation()
+      numeric_cols <- names(filtered_data)[sapply(filtered_data, is.numeric)]
+      
+      if (length(numeric_cols) > 0) {
+        updateSelectInput(session, "validation_ycol", choices = numeric_cols, selected = numeric_cols[min(2, length(numeric_cols))])
+      }
+      
+      # For X-axis, use specific columns as requested
+      x_axis_options <- c("process_id", "mge_params", "identification", "species")
+      available_x_options <- x_axis_options[x_axis_options %in% names(filtered_data)]
+      
+      if (length(available_x_options) > 0) {
+        updateSelectInput(session, "validation_xcol", choices = available_x_options, selected = available_x_options[1])
+      } else {
+        # Fallback to fasta_header if none of the preferred options are available
+        if ("fasta_header" %in% names(filtered_data)) {
+          updateSelectInput(session, "validation_xcol", choices = "fasta_header", selected = "fasta_header")
+        }
+      }
+    }
+  })
+  
+  # Render summary stats plot (filter NAs)
+  output$summaryStatsPlot <- renderPlotly({
+    req(input$xcol, input$ycol, values$dataset_loaded, nrow(values$summary_stats) > 0)
+    
+    plot_data <- values$summary_stats
+    
+    # Simple check that both columns exist and are numeric
+    if (!input$xcol %in% names(plot_data) || !input$ycol %in% names(plot_data)) {
+      return(plot_ly() %>%
+               add_text(x = 0.5, y = 0.5, text = "Selected columns not available", 
+                        textposition = "middle center") %>%
+               layout(
+                 xaxis = list(title = input$xcol, range = c(0, 1), showticklabels = FALSE),
+                 yaxis = list(title = input$ycol, range = c(0, 1), showticklabels = FALSE),
+                 showlegend = FALSE
+               ))
+    }
+    
+    # Filter out rows with NA values in the selected columns
+    plot_data <- plot_data %>%
+      filter(!is.na(.data[[input$xcol]]) & !is.na(.data[[input$ycol]]))
+    
+    if (nrow(plot_data) == 0) {
+      return(plot_ly() %>%
+               add_text(x = 0.5, y = 0.5, text = "No valid data points available", 
+                        textposition = "middle center") %>%
+               layout(
+                 xaxis = list(title = input$xcol, range = c(0, 1), showticklabels = FALSE),
+                 yaxis = list(title = input$ycol, range = c(0, 1), showticklabels = FALSE),
+                 showlegend = FALSE
+               ))
+    }
+    
+    plot_ly(
+      data = plot_data,
+      x = ~.data[[input$xcol]],
+      y = ~.data[[input$ycol]],
+      type = 'scatter',
+      mode = 'markers',
+      marker = list(size = 10, color = 'rgba(51, 122, 183, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+      text = ~paste("Process ID:", process_id, "<br>Fasta Header:", fasta_header),
+      textposition = "none",
+      hovertemplate = "%{text}<br>%{xaxis.title.text}: %{x}<br>%{yaxis.title.text}: %{y}<extra></extra>"
+    ) %>%
+      layout(
+        xaxis = list(title = input$xcol),
+        yaxis = list(title = input$ycol),
+        margin = list(t = 30)
+      )
+  })
+  
+  # Render barcode validation bar chart
+  output$barcodeValidationPlot <- renderPlotly({
+    req(input$validation_xcol, input$validation_ycol, values$dataset_loaded, nrow(values$barcode_validation) > 0)
+    
+    filtered_data <- prepare_filtered_barcode_validation()
+    
+    # Remove HTML tags from the data for plotting
+    plot_data <- filtered_data
+    if (input$validation_xcol == "fasta_header" && "fasta_header" %in% names(plot_data)) {
+      plot_data$fasta_header <- gsub("<.*?>", "", plot_data$fasta_header)
+    }
+    
+    # Create bar chart with config for scrolling/zooming
+    p <- plot_ly(
+      data = plot_data,
+      x = ~.data[[input$validation_xcol]],
+      y = ~.data[[input$validation_ycol]],
+      type = 'bar',
+      marker = list(color = 'rgba(220, 53, 69, 0.7)', line = list(width = 1, color = 'rgba(0,0,0,0.5)')),
+      text = ~paste("Process ID:", process_id, "<br>Fasta Header:", fasta_header),
+      textposition = "none",
+      hovertemplate = "%{text}<br>%{xaxis.title.text}: %{x}<br>%{yaxis.title.text}: %{y}<extra></extra>"
+    ) %>%
+      layout(
+        xaxis = list(
+          title = input$validation_xcol,
+          tickangle = -45
+        ),
+        yaxis = list(title = input$validation_ycol),
+        margin = list(t = 30, b = 100),
+        dragmode = "pan"
+      ) %>%
+      config(scrollZoom = TRUE)
+    
+    return(p)
+  })
+  
+  # Download handlers with updated logic for filtered data
+  output$downloadOutcomeTable <- downloadHandler(
+    filename = function() {
+      paste0("barcoding_outcome_", values$current_identifier, "_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      outcome_data <- prepare_outcome_data()
+      if (nrow(outcome_data) > 0) {
+        export_data <- outcome_data %>% 
+          select(-overall_status_code) %>%
+          mutate(`Process ID` = gsub('<.*?>', '', `Process ID`))
+        write.csv(export_data, file, row.names = FALSE)
+      } else {
+        write.csv(data.frame("No data available"), file, row.names = FALSE)
+      }
+    }
+  )
+  
+  output$downloadSummaryStats <- downloadHandler(
+    filename = function() {
+      paste0("summary_stats_", values$current_identifier, "_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      write.csv(values$summary_stats, file, row.names = FALSE)
+    }
+  )
+  
+  # Download handler for filtered barcode validation data (unwrap sequences for export)
+  output$downloadBarcodeValidation <- downloadHandler(
+    filename = function() {
+      paste0("barcode_validation_filtered_", values$current_identifier, "_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      filtered_data <- prepare_filtered_barcode_validation()
+      
+      # Remove line breaks from sequence column for export
+      if ("sequence" %in% names(filtered_data)) {
+        export_data <- filtered_data %>%
+          mutate(sequence = gsub("\n", "", sequence))
+      } else {
+        export_data <- filtered_data
+      }
+      
+      write.csv(export_data, file, row.names = FALSE)
+    }
+  )
+  
+  output$downloadFasta <- downloadHandler(
+    filename = function() {
+      paste0("barcodes_", values$current_identifier, "_", Sys.Date(), ".fasta")
+    },
+    content = function(file) {
+      fasta_content <- prepare_fasta_data()
+      writeLines(fasta_content, file)
+    }
+  )
 }
 
 # Run the application
