@@ -7,7 +7,7 @@ library(shinyjs)
 
 # Base data directories for flat structure
 BASE_DIRS <- list(
-  bgee_summary = "./data/bgee_summary_stats/",
+  BeeGees_summary = "./data/BeeGees_summary_stats/",
   barcode_validation = "./data/barcode_validation/",
   barcode_validation_merged = "./data/barcode_validation/merged/",
   barcodes = "./data/barcodes/"
@@ -169,16 +169,16 @@ extract_plate_id_from_sample <- function(sample_ids) {
 get_available_process_ids <- function() {
   all_process_ids <- character(0)
   
-  # Get process IDs from BGEE summary stats files
-  if (dir.exists(BASE_DIRS$bgee_summary)) {
-    csv_files <- list.files(BASE_DIRS$bgee_summary, pattern = "\\.csv$", full.names = TRUE)
+  # Get process IDs from BeeGees summary stats files
+  if (dir.exists(BASE_DIRS$BeeGees_summary)) {
+    csv_files <- list.files(BASE_DIRS$BeeGees_summary, pattern = "\\.csv$", full.names = TRUE)
     
-    process_bgee_data <- function(data) {
+    process_BeeGees_data <- function(data) {
       standardise_column_names(data, "process_id", c("Process.ID", "Process ID", "process_id", "ID"))
     }
     
     for (file in csv_files) {
-      data <- safe_read_file(file, read_csv_safe, process_bgee_data, "CSV")
+      data <- safe_read_file(file, read_csv_safe, process_BeeGees_data, "CSV")
       if (!is.null(data) && "process_id" %in% names(data)) {
         all_process_ids <- c(all_process_ids, data$process_id)
       }
@@ -548,13 +548,13 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
   
   # Track actual records found for target process IDs
   records_found <- list(
-    bgee_records = 0,
+    BeeGees_records = 0,
     validation_records = 0,
     fasta_sequences = 0
   )
   
   process_ids_found <- list(
-    bgee_ids = character(),
+    BeeGees_ids = character(),
     validation_ids = character(),
     fasta_ids = character(),
     taxval_ids = character()
@@ -564,18 +564,18 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
   message(paste("Target Process IDs count:", length(target_process_ids)))
   message(paste("Sample target IDs:", paste(head(target_process_ids, 3), collapse = ", ")))
   
-  # Load BGEE summary stats with numeric conversion
-  if (dir.exists(BASE_DIRS$bgee_summary)) {
-    csv_files <- list.files(BASE_DIRS$bgee_summary, pattern = "\\.csv$", full.names = TRUE)
+  # Load BeeGees summary stats with numeric conversion
+  if (dir.exists(BASE_DIRS$BeeGees_summary)) {
+    csv_files <- list.files(BASE_DIRS$BeeGees_summary, pattern = "\\.csv$", full.names = TRUE)
     all_summary_data <- data.frame()
     
-    message(paste("Found", length(csv_files), "CSV files in bgee_summary directory"))
+    message(paste("Found", length(csv_files), "CSV files in BeeGees_summary directory"))
     
     for (file in csv_files) {
       tryCatch({
         data <- read.csv(file, stringsAsFactors = FALSE)
         
-        # The BGEE files use "ID" column based on sample
+        # The BeeGees files use "ID" column based on sample
         data <- standardise_column_names(data, "process_id", c("ID", "Process.ID", "Process ID", "process_id"))
         
         if ("process_id" %in% names(data)) {
@@ -593,21 +593,21 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
     # Filter for target process IDs and count actual records
     if (nrow(all_summary_data) > 0 && "process_id" %in% names(all_summary_data)) {
       result$summary_stats <- filter_by_process_ids(all_summary_data, target_process_ids)
-      records_found$bgee_records <- nrow(result$summary_stats)
+      records_found$BeeGees_records <- nrow(result$summary_stats)
       
-      if (records_found$bgee_records > 0) {
-        process_ids_found$bgee_ids <- unique(result$summary_stats$process_id)
-        message(paste("BGEE Summary: Found", records_found$bgee_records, "records for", length(process_ids_found$bgee_ids), "process IDs"))
+      if (records_found$BeeGees_records > 0) {
+        process_ids_found$BeeGees_ids <- unique(result$summary_stats$process_id)
+        message(paste("BeeGees Summary: Found", records_found$BeeGees_records, "records for", length(process_ids_found$BeeGees_ids), "process IDs"))
         
         # Debug: Show which columns are now numeric
         numeric_cols <- names(result$summary_stats)[sapply(result$summary_stats, is.numeric)]
         message(paste("Numeric columns after conversion:", paste(numeric_cols, collapse = ", ")))
       } else {
-        message("BGEE Summary: No records found for target process IDs")
+        message("BeeGees Summary: No records found for target process IDs")
       }
     }
   } else {
-    message("BGEE summary directory does not exist")
+    message("BeeGees summary directory does not exist")
   }
   
   # Load validation data (structval and taxval for logic, merged for display)
@@ -709,8 +709,8 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
   } else {
     loaded_items <- c()
     
-    if (records_found$bgee_records > 0) {
-      loaded_items <- c(loaded_items, paste("BGEE:", records_found$bgee_records, "records"))
+    if (records_found$BeeGees_records > 0) {
+      loaded_items <- c(loaded_items, paste("BeeGees:", records_found$BeeGees_records, "records"))
     }
     
     if (records_found$validation_records > 0) {
@@ -724,12 +724,12 @@ load_data <- function(identifier, target_process_ids, identifier_type = "plate")
     result$status <- paste("Successfully loaded:", paste(loaded_items, collapse = ", "))
     
     # Add process ID summary
-    unique_process_ids_found <- unique(c(process_ids_found$bgee_ids, process_ids_found$validation_ids, process_ids_found$fasta_ids))
+    unique_process_ids_found <- unique(c(process_ids_found$BeeGees_ids, process_ids_found$validation_ids, process_ids_found$fasta_ids))
     result$status <- paste(result$status, "- Found data for", length(unique_process_ids_found), "of", length(target_process_ids), "Process IDs")
     
     # Add warning if some data types are completely missing
     missing_types <- c()
-    if (records_found$bgee_records == 0) missing_types <- c(missing_types, "BGEE Summary")
+    if (records_found$BeeGees_records == 0) missing_types <- c(missing_types, "BeeGees Summary")
     if (records_found$validation_records == 0) missing_types <- c(missing_types, "Barcode Validation")
     if (records_found$fasta_sequences == 0) missing_types <- c(missing_types, "FASTA Sequences")
     
@@ -898,16 +898,16 @@ ui <- fluidPage(
              h4("About the Data"),
              p("Once you select and load a plate or project, you can navigate to the other tabs to view:"),
              tags$ul(
-               tags$li(strong("BGEE Summary Statistics:"), " Combined statistics from the Barcode Gene Extractor & Evaluator (BGEE) pipeline."),
-               tags$li(strong("Barcode Validation:"), " Merged structural and taxonomic validation results from the BGEE pipeline."),
+               tags$li(strong("BeeGees Summary Statistics:"), " Combined statistics from the Barcode gene Extraction and Evaluation from Genome Skims (BeeGees) pipeline."),
+               tags$li(strong("Barcode Validation:"), " Merged structural and taxonomic validation results from the BeeGees pipeline."),
                tags$li(strong("Barcodes:"), " FASTA sequences for validated barcodes."),
                tags$li(strong("Visualise Data:"), " Interactive plots for exploring the loaded data.")
              ),
              
              br(),
-             h4("Barcode Gene Extractor & Evaluator (BGEE) pipeline"),
+             h4("Barcode gene Extraction and Evaluation from Genome Skims (BeeGees) pipeline"),
              div(
-               p("The BGEE (Barcode Gene Extractor & Evaluator) pipeline is a comprehensive workflow for recovery of high-quality barcode sequences from raw genome skim sequencing data derived from museum specimens. The workflow includes several quality control steps, barcode consensus sequence generation, cleaning, and validation processes to ensure reliable barcode extraction."),
+               p("The BeeGees (Barcode gene Extraction and Evaluation from Genome Skims) pipeline is a comprehensive workflow for recovery of high-quality barcode sequences from raw genome skim sequencing data derived from museum specimens. The workflow includes several quality control steps, barcode consensus sequence generation, cleaning, and validation processes to ensure reliable extraction of high-quality barcodes."),
                p("The pipeline supports two main processing modes: 'concat' mode for concatenating paired-end reads, and 'merge' mode for merging paired-end reads. Both pathways converge at the multi-parameter barcode recovery step (MitoGeneExtractor), followed by consensus cleaning (Fasta_cleaner), barcode consensus structural validation, taxonomic validation, and finally, seleciton of validated barcode sequences (barcode_validator)."),
                style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
              )
@@ -969,8 +969,8 @@ ui <- fluidPage(
              )
     ),
     
-    # BGEE Summary Statistics Tab (without scatter plot)
-    tabPanel("BGEE Summary Statistics",
+    # BeeGees Summary Statistics Tab (without scatter plot)
+    tabPanel("BeeGees Summary Statistics",
              br(),
              conditionalPanel(
                condition = "output.dataset_loaded == false",
@@ -981,8 +981,8 @@ ui <- fluidPage(
                condition = "output.dataset_loaded == true",
                
                div(
-                 h4("About BGEE Summary Statistics"),
-                 HTML("<a href='https://github.com/bge-barcoding/BGEE' target='_blank'>BGEE (Barcode Gene Extractor & Evaluator)</a> summary statistics are generated from the combined output of the Gene Fetch, MGE and fasta_cleaner steps of the pipeline."),
+                 h4("About BeeGees Summary Statistics"),
+                 HTML("<a href='https://github.com/bge-barcoding/BeeGees' target='_blank'>BeeGees (Barcode gene Extraction and Evaluation from Genome Skims)</a> summary statistics are generated from the combined output of the Gene Fetch, MGE and fasta_cleaner steps of the pipeline."),
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
@@ -1004,7 +1004,7 @@ ui <- fluidPage(
                
                div(
                  h4("About Barcode Validation"),
-                 HTML("<a href='https://github.com/bge-barcoding/barcode_validator' target='_blank'>Barcode Validation</a> is the final step of the BGEE workflow, consisting of merged structural and taxonomic validation results for each barcode consensus sequence."),
+                 HTML("<a href='https://github.com/bge-barcoding/barcode_validator' target='_blank'>Barcode Validation</a> is the final step of the BeeGees workflow, consisting of merged structural and taxonomic validation results for each barcode consensus sequence."),
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
@@ -1030,8 +1030,8 @@ ui <- fluidPage(
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               # BGEE Summary Statistics Scatter Plot - UPDATED ORDER
-               h4("BGEE Summary Statistics - Scatter Plot"),
+               # BeeGees Summary Statistics Scatter Plot - UPDATED ORDER
+               h4("BeeGees Summary Statistics - Scatter Plot"),
                conditionalPanel(
                  condition = "output.has_summary_data == true",
                  fluidRow(
@@ -1042,7 +1042,7 @@ ui <- fluidPage(
                ),
                conditionalPanel(
                  condition = "output.has_summary_data == false",
-                 div(p("No BGEE Summary Statistics data available for visualisation."),
+                 div(p("No BeeGees Summary Statistics data available for visualisation."),
                      style = "color: #6c757d; font-style: italic; margin: 20px 0;")
                ),
                
@@ -1221,7 +1221,7 @@ server <- function(input, output, session) {
       # Check if any actual data was found
       total_records <- sum(unlist(result$debug_info$records_found))
       missing_data_types <- c()
-      if (result$debug_info$records_found$bgee_records == 0) missing_data_types <- c(missing_data_types, "BGEE")
+      if (result$debug_info$records_found$BeeGees_records == 0) missing_data_types <- c(missing_data_types, "BeeGees")
       if (result$debug_info$records_found$validation_records == 0) missing_data_types <- c(missing_data_types, "Validation")
       if (result$debug_info$records_found$fasta_sequences == 0) missing_data_types <- c(missing_data_types, "FASTA")
       
@@ -1250,7 +1250,7 @@ server <- function(input, output, session) {
         shinyjs::show("loading_section")
         
         # Simulate progress updates
-        session$sendCustomMessage("updateProgress", list(percent = 33, message = "Processing BGEE data"))
+        session$sendCustomMessage("updateProgress", list(percent = 33, message = "Processing BeeGees data"))
         Sys.sleep(0.3)
         session$sendCustomMessage("updateProgress", list(percent = 66, message = "Merging Validation data"))
         Sys.sleep(0.3)
