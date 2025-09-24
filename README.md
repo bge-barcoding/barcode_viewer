@@ -1,5 +1,5 @@
 # Barcoding Results Dashboard
-A Shiny-based interactive dashboard for visualisation, filtering, and downloading validated barcode sequences (and associated statistics) from the [Barcode Gene Extractor & Evaluator (BGEE)](https://github.com/bge-barcoding/BGEE) pipeline. Barcode validation is undertaken using the [barcode_validator](https://github.com/naturalis/barcode_validator/tree/main) tool. Both BGEE and barcode_validator were built for the [Biodiversity Genomics Europe (BGE) consortium](https://biodiversitygenomics.eu/).
+A Shiny-based interactive dashboard for visualisation, filtering, and downloading validated barcode sequences (and associated statistics) from the [Barcode gene Extraction and Evaluation from Genome Skims & Evaluator (BeeGees)](https://github.com/bge-barcoding/BeeGees) pipeline. Barcode validation is undertaken using the [barcode_validator](https://github.com/naturalis/barcode_validator/tree/main) tool. Both BeeGees and barcode_validator were built for the [Biodiversity Genomics Europe (BGE) consortium](https://biodiversitygenomics.eu/).
 
 
 ## Quick Start
@@ -65,7 +65,7 @@ BGSNH, BGEPL, EBGEP, BSCRO, BIOSC, INVBG, BCEMI, ILECA, ALPFU
    - Clickable BOLD Systems links
 4. **Explore data**: Use additional tabs to examine detailed metrics:
    - **Barcodes**: View and download FASTA sequences with filtering options
-   - **BGEE summary statistics**: Pipeline summary results with interactive plots
+   - **BeeGees summary statistics**: Pipeline summary results with interactive plots
    - **Barcode validation**: Detailed structural and taxonomic validation data
 5. **Export results**: Download filtered data using the export buttons on each tab.
 
