@@ -843,6 +843,7 @@ ui <- fluidPage(
              div(class = "search-section",
                  h3("Search by Plate ID or Project"),
                  p("Select either a plate to view results for all Process IDs in that plate, OR select a project to view results for all Process IDs containing that project code:"),
+                 p("Please allow a minute for the data to load behind the scenes after clicking the 'Load Results' button. A loading bar will appear momentarily."),
                  fluidRow(
                    column(5,
                           h5("Search by Plate"),
@@ -900,8 +901,8 @@ ui <- fluidPage(
              tags$ul(
                tags$li(strong("BeeGees Summary Statistics:"), " Combined statistics from the Barcode gene Extraction and Evaluation from Genome Skims (BeeGees) pipeline."),
                tags$li(strong("Barcode Validation:"), " Merged structural and taxonomic validation results from the BeeGees pipeline."),
-               tags$li(strong("Barcodes:"), " FASTA sequences for validated barcodes."),
-               tags$li(strong("Visualise Data:"), " Interactive plots for exploring the loaded data.")
+               tags$li(strong("Visualise Data:"), " Interactive plots for exploring the loaded data."),
+               tags$li(strong("Barcodes:"), " FASTA sequences for validated barcodes.")
              ),
              
              br(),
@@ -910,7 +911,19 @@ ui <- fluidPage(
                p("The BeeGees (Barcode gene Extraction and Evaluation from Genome Skims) pipeline is a comprehensive workflow for recovery of high-quality barcode sequences from raw genome skim sequencing data derived from museum specimens. The workflow includes several quality control steps, barcode consensus sequence generation, cleaning, and validation processes to ensure reliable extraction of high-quality barcodes."),
                p("The pipeline supports two main processing modes: 'concat' mode for concatenating paired-end reads, and 'merge' mode for merging paired-end reads. Both pathways converge at the multi-parameter barcode recovery step (MitoGeneExtractor), followed by consensus cleaning (Fasta_cleaner), barcode consensus structural validation, taxonomic validation, and finally, seleciton of validated barcode sequences (barcode_validator)."),
                style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
+             ),
+             
+             br(),
+             h4("About the Barcoding Results Dashboard (barcode_viewer)"),
+             div(
+               p(strong("Author:"), " Dr. Daniel A.J. Parsons (NHMUK) - D.parsons@nhm.ac.uk"),
+               p(strong("Contributors:"), " Dr. Benajmin W. Price (NHMUK) - B.price@nhm.ac.uk"),
+               p(strong("Funding:"), " Development was supported by Biodiversity Genomics Europe (Grant no.101059492) which is funded by Horizon Europe under the Biodiversity, Circular Economy and Environment call (REA.B.3); co-funded by the Swiss State Secretariat for Education, Research and Innovation (SERI) under contract numbers 22.00173 and 24.00054; and by UK Research and Innovation (UKRI) under the Department for Business, Energy and Industrial Strategy’s Horizon Europe Guarantee Scheme."),
+               p(strong("Computational resources:"), " The authors acknowledge Research Computing at the James Hutton Institute for providing computational resources and technical support for the “UK’s Crop Diversity Bioinformatics HPC” (BBSRC grants BB/S019669/1 and BB/X019683/1), use of which has contributed to the results reported within this dashboard"),
+               p(strong("Version:"), " v1.0.2 (September 2025)"),
+               style = "background-color: #f1f3f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
              )
+             
     ),
     
     # Barcoding Outcome Tab
@@ -983,10 +996,12 @@ ui <- fluidPage(
                div(
                  h4("About BeeGees Summary Statistics"),
                  HTML("<a href='https://github.com/bge-barcoding/BeeGees' target='_blank'>BeeGees (Barcode gene Extraction and Evaluation from Genome Skims)</a> summary statistics are generated from the combined output of the Gene Fetch, MGE and fasta_cleaner steps of the pipeline."),
+                 p("These statistics help evaluate barcode quality across samples."),
+                 p("All summary statistics can be downloaded with the 'Download ALL Summary Stats' button below. 'Copy', 'CSV', 'Excel' buttons only copy/download the first 'page' of the table"),
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               downloadButton("downloadSummaryStats", "Download Filtered Summary Stats", class = "download-btn btn-primary"),
+               downloadButton("downloadSummaryStats", "Download Summary Stats", class = "download-btn btn-primary"),
                DTOutput("summaryStatsTable")
              )
     ),
@@ -1005,10 +1020,12 @@ ui <- fluidPage(
                div(
                  h4("About Barcode Validation"),
                  HTML("<a href='https://github.com/bge-barcoding/barcode_validator' target='_blank'>Barcode Validation</a> is the final step of the BeeGees workflow, consisting of merged structural and taxonomic validation results for each barcode consensus sequence."),
+                 p("These statistics help evaluate barcode quality and recovery across samples."),
+                 p("All statistics can be downloaded with the 'Download ALL Barcode Validation Data' button below. 'Copy', 'CSV', 'Excel' buttons only copy/download the first 'page' of the table"),
                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #495057;"
                ),
                
-               downloadButton("downloadBarcodeValidation", "Download Filtered Barcode Validation Data", class = "download-btn btn-primary"),
+               downloadButton("downloadBarcodeValidation", "Download Barcode Validation Data", class = "download-btn btn-primary"),
                DTOutput("barcodeValidationTable")
              )
     ),
